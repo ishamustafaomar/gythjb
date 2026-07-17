@@ -17,7 +17,14 @@ import type {
   TemplateId,
   TopicDomain,
 } from './types';
-import { detectTopic, TOPIC_NAME_NOUNS, TOPIC_TAGLINES } from './codegen/content';
+import {
+  composeTagline,
+  detectTopic,
+  flavorNameNouns,
+  resolveFlavor,
+  TOPIC_NAME_NOUNS,
+  type TopicFlavor,
+} from './codegen/content';
 
 /* ------------------------------------------------------------------ */
 /* Template detection                                                  */
@@ -333,130 +340,17 @@ function extractName(prompt: string): string | null {
   return null;
 }
 
-function generateName(template: TemplateId, topic: TopicDomain, rng: Rng): string {
-  const topicNouns = TOPIC_NAME_NOUNS[topic];
-  const nouns = topicNouns.length > 0 ? topicNouns : NAME_NOUNS[template];
-  return `${rng.pick(NAME_ADJECTIVES)} ${rng.pick(nouns)}`;
-}
-
-/* ------------------------------------------------------------------ */
-/* Taglines                                                            */
-/* ------------------------------------------------------------------ */
-
-const TEMPLATE_TAGLINES: Record<TemplateId, readonly string[]> = {
-  landing: [
-    'Launch sooner. Look sharper.',
-    'The short path from idea to audience.',
-    'Everything your launch needs, on one page.',
-  ],
-  dashboard: [
-    'Your numbers, finally readable.',
-    'See the whole picture at a glance.',
-    'Signal first, noise never.',
-  ],
-  todo: [
-    'Small steps, checked off.',
-    'Your day, sorted.',
-    'Capture it now, finish it today.',
-  ],
-  habit: [
-    'Show up daily. Watch it add up.',
-    'Tiny habits, honest streaks.',
-    'Consistency, made visible.',
-  ],
-  portfolio: [
-    'Selected work, told properly.',
-    'Craft first. Everything else second.',
-    'Work that speaks in full sentences.',
-  ],
-  blog: [
-    'Essays, notes and small discoveries.',
-    'Writing that respects your time.',
-    'A quiet corner of the internet.',
-  ],
-  store: [
-    'Good things, fairly made.',
-    'Small-batch goods, shipped with care.',
-    'Shop slow. Keep it forever.',
-  ],
-  kanban: [
-    'Every card in its lane.',
-    'From backlog to done, visibly.',
-    'Work moves left to right.',
-  ],
-  notes: [
-    'Think in drafts.',
-    'A tidy place for untidy thoughts.',
-    'Write it down before it wanders off.',
-  ],
-  pricing: [
-    'Fair plans, no fine print.',
-    'Pick a plan, keep the momentum.',
-    'Simple pricing that scales with you.',
-  ],
-  recipes: [
-    'Cook more, scroll less.',
-    'Recipes you will actually make.',
-    'From pantry to plate, happily.',
-  ],
-  chat: [
-    'Conversations that keep up.',
-    'Say it once, land it well.',
-    'Where good talk lives.',
-  ],
-};
-
-const TOPIC_VERBS = new Set([
-  'track', 'manage', 'plan', 'organize', 'organise', 'sell', 'share',
-  'learn', 'find', 'build', 'write', 'cook', 'collect', 'ship', 'grow',
-  'book', 'schedule', 'discover', 'stay', 'save', 'remember',
-]);
-
-function extractTopic(lowerPrompt: string): string | null {
-  const match = /\b(?:for|about)\s+(?!my\s|our\s)((?:(?:a|an|the)\s+)?[a-z][a-z0-9' -]{2,48})/.exec(lowerPrompt);
-  const raw = match?.[1];
-  if (!raw) return null;
-  const stop = new Set(['called', 'named', 'with', 'that', 'which', 'using', 'and', 'in']);
-  const kept: string[] = [];
-  for (const word of raw.trim().split(/\s+/)) {
-    if (stop.has(word)) break;
-    kept.push(word);
-    if (kept.length >= 6) break;
-  }
-  const topic = kept.join(' ').replace(/\bmy\b/g, 'your').trim();
-  return topic.length >= 3 ? topic : null;
-}
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function buildTagline(
+function generateName(
   template: TemplateId,
-  topicPhrase: string | null,
   topic: TopicDomain,
+  flavor: TopicFlavor,
   rng: Rng,
 ): string {
-  if (topicPhrase) {
-    const firstWord = topicPhrase.split(/\s+/)[0] ?? '';
-    if (TOPIC_VERBS.has(firstWord)) {
-      return rng.pick([
-        `The calm way to ${topicPhrase}.`,
-        `The simplest way to ${topicPhrase}.`,
-        `Helping you ${topicPhrase}, one day at a time.`,
-        `${capitalize(topicPhrase)} — without the busywork.`,
-      ]);
-    }
-    return rng.pick([
-      `Made for ${topicPhrase}, with care.`,
-      `A thoughtful home for ${topicPhrase}.`,
-      `A fresh take on ${topicPhrase}.`,
-      `${capitalize(topicPhrase)}, done properly.`,
-    ]);
-  }
-  const topical = TOPIC_TAGLINES[topic];
-  if (topical.length > 0) return rng.pick(topical);
-  return rng.pick(TEMPLATE_TAGLINES[template]);
+  const voiceNouns = flavorNameNouns(topic, flavor);
+  const topicNouns = TOPIC_NAME_NOUNS[topic];
+  const nouns =
+    voiceNouns.length > 0 ? voiceNouns : topicNouns.length > 0 ? topicNouns : NAME_NOUNS[template];
+  return `${rng.pick(NAME_ADJECTIVES)} ${rng.pick(nouns)}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -469,10 +363,31 @@ export const SECTION_ORDER: readonly SectionId[] = [
   'testimonials', 'pricing', 'faq', 'contact', 'newsletter', 'cta',
 ];
 
+/**
+ * Dense-by-default page structures: a landing page always flows through at
+ * least hero → features → stats → about → testimonials → faq → cta, with
+ * seeded extras on top. Portfolio ≥5 and pricing ≥4 rendered sections.
+ */
 const DEFAULT_SECTIONS: Record<TemplateId, readonly SectionId[]> = {
-  landing: ['hero', 'features', 'testimonials', 'cta'],
-  pricing: ['hero', 'pricing', 'faq', 'cta'],
-  portfolio: ['hero', 'gallery', 'about', 'contact'],
+  landing: ['hero', 'features', 'stats', 'about', 'testimonials', 'faq', 'cta'],
+  pricing: ['hero', 'pricing', 'stats', 'faq', 'cta'],
+  portfolio: ['hero', 'gallery', 'about', 'testimonials', 'contact'],
+  dashboard: [],
+  todo: [],
+  habit: [],
+  blog: [],
+  store: [],
+  kanban: [],
+  notes: [],
+  recipes: [],
+  chat: [],
+};
+
+/** Seeded optional extras layered onto the defaults per template. */
+const SECTION_EXTRAS: Record<TemplateId, readonly SectionId[]> = {
+  landing: ['gallery', 'pricing', 'newsletter', 'contact'],
+  pricing: ['testimonials', 'newsletter'],
+  portfolio: ['stats', 'newsletter'],
   dashboard: [],
   todo: [],
   habit: [],
@@ -500,9 +415,25 @@ const SECTION_HINTS: ReadonlyArray<{ id: SectionId; pattern: RegExp }> = [
 
 const PAGE_TEMPLATES: ReadonlySet<TemplateId> = new Set(['landing', 'pricing', 'portfolio']);
 
-function resolveSections(template: TemplateId, lowerPrompt: string): SectionId[] {
+function resolveSections(
+  template: TemplateId,
+  lowerPrompt: string,
+  rng: Rng,
+  promptLength: number,
+): SectionId[] {
   if (!PAGE_TEMPLATES.has(template)) return [];
   const wanted = new Set<SectionId>(DEFAULT_SECTIONS[template]);
+
+  // Seeded extras — long, detailed prompts bias toward denser pages.
+  const extras = [...SECTION_EXTRAS[template]];
+  const extraCount = promptLength > 120 ? 2 : rng.chance(0.6) ? 1 : 0;
+  for (let i = 0; i < extraCount && extras.length > 0; i++) {
+    const index = rng.int(0, extras.length - 1);
+    const extra = extras[index];
+    if (extra !== undefined) wanted.add(extra);
+    extras.splice(index, 1);
+  }
+
   for (const hint of SECTION_HINTS) {
     if (hint.pattern.test(lowerPrompt)) wanted.add(hint.id);
   }
@@ -519,8 +450,16 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
 
   const template = detectTemplate(lower);
   const topic = detectTopic(lower);
-  const name = extractName(prompt) ?? generateName(template, topic, rng);
-  const tagline = buildTagline(template, extractTopic(lower), topic, rng);
+  const extracted = extractName(prompt);
+  // Sub-topic voice: keyword-derived from the prompt (plus any explicit
+  // name), seeded fallback otherwise. The same resolution runs again at
+  // regeneration time against name + tagline (see flavorFor), and the
+  // composed tagline always carries a recoverable flavor keyword.
+  const flavor = resolveFlavor(topic, lower, extracted?.toLowerCase() ?? '', seed);
+  const name = extracted ?? generateName(template, topic, flavor, rng);
+  // Taglines never echo the raw prompt — they are composed from the
+  // voice's stem pools so sibling seeds vary in structure, not just suffix.
+  const tagline = composeTagline(topic, rng, flavor);
 
   const mode: ColorMode =
     /\bdark\b|\bnight\s*mode\b/.test(lower) && !/\blight\s*mode\b/.test(lower)
@@ -549,7 +488,12 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
   }
 
   const features: FeatureFlag[] = [];
-  if (/sticky\s+(?:header|nav)|fixed\s+(?:header|nav)/.test(lower)) {
+  // Page templates always get a sticky translucent header; other templates
+  // opt in via the prompt.
+  if (
+    PAGE_TEMPLATES.has(template) ||
+    /sticky\s+(?:header|nav)|fixed\s+(?:header|nav)/.test(lower)
+  ) {
     features.push('sticky-header');
   }
   if (/\bcompact\b|\bdense\b|tight\s+spacing/.test(lower)) {
@@ -574,7 +518,7 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
     font,
     style: { archetype, hero },
     topic,
-    sections: resolveSections(template, lower),
+    sections: resolveSections(template, lower, rng, prompt.trim().length),
     features,
     seed,
   };

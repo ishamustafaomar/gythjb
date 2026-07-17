@@ -6,8 +6,8 @@
  * Pure and deterministic: detection is keyword scoring, all variety comes
  * from the caller-provided Rng.
  */
-import type { Rng } from '@/lib/seeded';
-import type { TopicDomain } from '../types';
+import { createRng, type Rng } from '@/lib/seeded';
+import type { ProjectSpec, TopicDomain } from '../types';
 
 /* ------------------------------------------------------------------ */
 /* Detection                                                           */
@@ -100,6 +100,21 @@ export interface TopicPersona {
   role: string;
 }
 
+export interface TopicFaq {
+  q: string;
+  a: string;
+}
+
+/**
+ * A quote for the testimonials section. `{name}` is replaced with the
+ * project's brand name at render time; `by` optionally names the persona
+ * role the quote reads most naturally from.
+ */
+export interface TopicTestimonial {
+  quote: string;
+  by?: string;
+}
+
 export interface TopicStat {
   value: string;
   label: string;
@@ -128,33 +143,87 @@ export interface TopicContent {
   kanbanCards: readonly string[];
   noteTitles: readonly string[];
   chatContacts: readonly string[];
+  /** Plausible partner/press wordmarks for logo strips (6 per domain). */
+  logoNames: readonly string[];
+  /** Specific 2–3 sentence origin blurb for about/split sections. */
+  longAbout: string;
+  /** Street-address flavor line for contact blocks and footers. */
+  contactLine: string;
+  /** Opening-hours flavor line for contact blocks and footers. */
+  hoursLine: string;
+  /** Short hero kicker/eyebrow lines (4+). */
+  heroKickers: readonly string[];
+  /** Tagline grammar: evocative imagery fragments (≥8, lowercase). */
+  taglineImagery: readonly string[];
+  /** Tagline grammar: promise fragments that follow a comma/dash (≥6, lowercase). */
+  taglinePromises: readonly string[];
+  /** Domain-concrete FAQ entries (≥6 per domain via contentFor). */
+  faq: readonly TopicFaq[];
+  /** Domain-concrete testimonial quotes (≥6 per domain via contentFor). */
+  testimonials: readonly TopicTestimonial[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Sub-topic flavors (voices)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Some domains cover several distinct businesses. A "flavor" is one
+ * coherent voice inside such a domain — a coffee roastery and a bakery are
+ * both `food`, but must never share a page. Non-split domains use
+ * 'general'.
+ */
+export type FoodFlavor = 'coffee' | 'bakery' | 'restaurant';
+export type MusicFlavor = 'podcast' | 'band' | 'studio';
+export type FitnessFlavor = 'gym' | 'yoga' | 'run';
+export type TopicFlavor = FoodFlavor | MusicFlavor | FitnessFlavor | 'general';
+
+/**
+ * One coherent sub-voice of a split domain. Pools listed here replace or
+ * lead the domain's general pools; optional pools fall back to the general
+ * ones. Tagline pools are voice-exclusive so every composed tagline carries
+ * a keyword the flavor detector can recover at regeneration time.
+ */
+export interface TopicVoice {
+  nameNouns: readonly string[];
+  personas: readonly TopicPersona[];
+  stats: readonly TopicStat[];
+  featureIdeas: readonly TopicFeature[];
+  heroKickers: readonly string[];
+  taglineImagery: readonly string[];
+  taglinePromises: readonly string[];
+  faq: readonly TopicFaq[];
+  testimonials: readonly TopicTestimonial[];
+  longAbout: string;
+  products?: readonly TopicProduct[];
+  posts?: readonly TopicPost[];
+  galleryProjects?: readonly string[];
+  logoNames?: readonly string[];
+  contactLine?: string;
+  hoursLine?: string;
 }
 
 /* ------------------------------------------------------------------ */
 /* Pools                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * FOOD base pools hold only voice-neutral entries; the coffee, bakery and
+ * restaurant voices below carry everything sub-topic-specific. contentFor
+ * merges them: flavored views get voice + general, unflavored views get all.
+ */
 const FOOD: TopicContent = {
   label: 'food & drink',
   glyph: '☕',
   products: [
-    { name: 'Single-origin espresso beans', price: 18.5, category: 'Coffee' },
-    { name: 'Sourdough country loaf', price: 8, category: 'Bakery' },
-    { name: 'Cold brew concentrate', price: 14, category: 'Coffee' },
-    { name: 'Cinnamon morning buns (4)', price: 12, category: 'Bakery' },
-    { name: 'Ceramic pour-over dripper', price: 24, category: 'Brewing' },
-    { name: 'Seasonal fruit galette', price: 22, category: 'Bakery' },
-    { name: 'House-blend drip bags (10)', price: 16, category: 'Coffee' },
     { name: 'Small-batch raspberry jam', price: 9.5, category: 'Pantry' },
-    { name: 'Hand-burr coffee grinder', price: 89, category: 'Brewing' },
+    { name: 'Wildflower honey jar', price: 11, category: 'Pantry' },
+    { name: 'First-press olive oil', price: 19, category: 'Pantry' },
+    { name: 'Waxed-canvas market tote', price: 24, category: 'Goods' },
   ],
   posts: [
-    { title: 'Behind the roast: cupping notes from this week', excerpt: 'Every batch gets tasted before it ships. Here is what we found in the new Huila lot — and why we roast it lighter.' },
-    { title: 'Why our croissants take three days', excerpt: 'Lamination cannot be rushed. A walk through the folds, the rests, and the butter that makes the difference.' },
-    { title: 'A field trip to the growers cooperative', excerpt: 'We spent a week at origin meeting the families behind our best-selling beans. Notes from the wet mill.' },
-    { title: 'Winter menu preview: five dishes we kept tasting', excerpt: 'Braises, brown butter and one surprising citrus dessert. What is landing on the chalkboard next month.' },
-    { title: 'The quiet craft of a proper crema', excerpt: 'Grind, dose, tamp, time. The four variables that separate a flat shot from a glossy one.' },
-    { title: 'Feeding a sourdough starter that survives weekends', excerpt: 'A schedule for bakers with lives. Your starter can wait — here is how to let it.' },
+    { title: 'What the market had this morning', excerpt: 'Six crates, one impulse buy and a rhubarb negotiation. A diary of the 6am produce run.' },
+    { title: 'The suppliers we call first', excerpt: 'Eleven names on a chalkboard, each one visited in person. How the sourcing list earns its places.' },
   ],
   recipes: [
     {
@@ -259,30 +328,19 @@ const FOOD: TopicContent = {
     },
   ],
   galleryProjects: [
-    'Espresso bar rebuild', 'Harvest dinner series', 'Roastery open day',
-    'Pastry case, Saturday 7am', 'Latte art throwdown', 'Farmers market stall',
+    'Farmers market stall', 'Summer preserving weekend', 'The new counter build',
   ],
   personas: [
-    { name: 'Marta Oliveira', role: 'Head roaster' },
-    { name: 'Ben Castellano', role: 'Pastry chef' },
-    { name: 'Yuki Hara', role: 'Café manager' },
-    { name: 'Dre Wilson', role: 'Green-bean buyer' },
-    { name: 'Colette Marchand', role: 'Front of house' },
+    { name: 'Sam Whitfield', role: 'Weekend regular' },
+    { name: 'Priya Patel', role: 'Market neighbor' },
   ],
   stats: [
-    { value: '4,200', label: 'cups poured every week' },
-    { value: '14', label: 'single-origin lots this season' },
-    { value: '3 days', label: 'from roast to shelf' },
-    { value: '5:45', label: 'first bake out of the oven' },
     { value: '92%', label: 'regulars who order "the usual"' },
+    { value: '11', label: 'local suppliers on speed dial' },
   ],
   featureIdeas: [
-    { title: 'Roasted weekly', text: 'Beans ship within 48 hours of the roast, never from a warehouse shelf.' },
-    { title: 'Seasonal menu', text: 'The chalkboard changes with the market — what is good now is what we serve.' },
-    { title: 'Direct trade', text: 'We buy from growers we have met, at prices we would say out loud.' },
-    { title: 'Brew guides', text: 'Dial in every bag with ratios and timings written by our baristas.' },
-    { title: 'Subscriptions', text: 'Fresh beans on your doorstep on your schedule — pause or swap anytime.' },
-    { title: 'Wholesale program', text: 'Training, gear and beans for cafés that care as much as we do.' },
+    { title: 'Gift boxes', text: 'Build a box from anything on the shelves and we wrap it properly. Add a note and a person with a real pen writes it out.' },
+    { title: 'Local delivery', text: 'Orders in by noon ride out on the cargo bike the same day. Delivery stays free inside the river quarter.' },
   ],
   habitIdeas: [
     'Morning pour-over ritual', 'Feed the sourdough starter', 'Prep tomorrow’s mise en place',
@@ -304,6 +362,231 @@ const FOOD: TopicContent = {
     'Supplier contacts', 'Menu ideas parking lot', 'Weekend bake schedule',
   ],
   chatContacts: ['Marta', 'Ben', 'Yuki', 'Dre'],
+  logoNames: ['Morning Standard', 'City Larder', 'The Slow Fork'],
+  longAbout:
+    'What began as a single market stall is now a small food business with eleven people who argue happily about seasonality. We buy from growers we can call by first name and taste everything before it earns a place on the shelf.',
+  contactLine: '14 Millstone Lane, river quarter',
+  hoursLine: 'Tue–Sun 8:00–17:00 · market stall Saturdays',
+  heroKickers: ['Small batches, big mornings', 'Open since first light', 'Seasonal and seriously fresh', 'Made nearby, sold fresh'],
+  taglineImagery: ['slow mornings', 'the good stuff, in season', 'shelves stocked by hand', 'the first taste of the day', 'seasonal and unhurried', 'food with a first name'],
+  taglinePromises: ['made from scratch daily', 'worth getting up early for', 'served without ceremony', 'sourced from people we know', 'honest about what is in season', 'better than it needs to be'],
+  faq: [
+    { q: 'Where do your ingredients come from?', a: 'Named farms and small importers we visit ourselves. The chalkboard lists every supplier, and the list changes with the seasons — never with the invoice.' },
+    { q: 'Can you work around allergies?', a: 'Tell us what to avoid and we will walk you through every ingredient — nothing here comes out of an unlabeled bucket. Nuts and dairy get their own prep space.' },
+    { q: 'Do you deliver?', a: 'Inside the river quarter, yes — same day by cargo bike for anything ordered before noon. Farther out, pantry goods ship twice a week.' },
+  ],
+  testimonials: [
+    { quote: 'The {name} gift box converted my whole office — three colleagues asked for the order link before lunch.', by: 'Market neighbor' },
+    { quote: 'Two years a Saturday regular and {name} has never once coasted. The standards are quietly ferocious.', by: 'Weekend regular' },
+  ],
+};
+
+/* ---------------------------- food voices -------------------------- */
+
+const FOOD_COFFEE: TopicVoice = {
+  nameNouns: ['Roast', 'Crema', 'Kettle', 'Cortado', 'Filter', 'Ember'],
+  products: [
+    { name: 'Single-origin espresso beans', price: 18.5, category: 'Coffee' },
+    { name: 'Cold brew concentrate', price: 14, category: 'Coffee' },
+    { name: 'House-blend drip bags (10)', price: 16, category: 'Coffee' },
+    { name: 'Ceramic pour-over dripper', price: 24, category: 'Brewing' },
+    { name: 'Hand-burr coffee grinder', price: 89, category: 'Brewing' },
+  ],
+  posts: [
+    { title: 'Behind the roast: cupping notes from this week', excerpt: 'Every batch gets tasted before it ships. Here is what we found in the new Huila lot — and why we roast it lighter.' },
+    { title: 'The quiet craft of a proper crema', excerpt: 'Grind, dose, tamp, time. The four variables that separate a flat shot from a glossy one.' },
+    { title: 'A field trip to the growers cooperative', excerpt: 'We spent a week at origin meeting the families behind our best-selling beans. Notes from the wet mill.' },
+  ],
+  galleryProjects: ['Espresso bar rebuild', 'Roastery open day', 'Latte art throwdown'],
+  personas: [
+    { name: 'Marta Oliveira', role: 'Head roaster' },
+    { name: 'Yuki Hara', role: 'Café manager' },
+    { name: 'Dre Wilson', role: 'Green-bean buyer' },
+  ],
+  stats: [
+    { value: '4,200', label: 'cups poured every week' },
+    { value: '14', label: 'single-origin lots this season' },
+    { value: '3 days', label: 'from roast to shelf' },
+  ],
+  featureIdeas: [
+    { title: 'Roasted weekly', text: 'Beans ship within 48 hours of the roast, never from a warehouse shelf. Every bag carries its roast date and a one-line cupping note.' },
+    { title: 'Direct trade', text: 'We buy from growers we have met, at prices we would say out loud. Fourteen farms, three origins, zero brokers in between.' },
+    { title: 'Brew guides', text: 'Dial in every bag with ratios and timings written by our baristas. Start at 1:16 and 94 degrees, then move one variable at a time.' },
+    { title: 'Subscriptions', text: 'Fresh beans on your doorstep on your schedule — pause or swap anytime. Most members settle on a 250 g bag every second Friday.' },
+    { title: 'Wholesale program', text: 'Training, gear and beans for cafés that care as much as we do. Onboarding includes two full days behind our own bar.' },
+  ],
+  logoNames: ['Roast Quarterly', 'Brew District', 'The Daily Pull'],
+  longAbout:
+    'What began as a two-group espresso cart outside the farmers market is now a roastery with a rebuilt 1978 drum roaster and a bar that queues before seven. Every lot is cupped twice before it ships, and the roast date goes on the bag where the slogan usually sits.',
+  contactLine: '14 Millstone Lane, river quarter',
+  hoursLine: 'Tue–Sun 7:00–15:00 · roastery tours Saturdays',
+  heroKickers: ['Roasted this week', 'From the cupping table', 'Single origins, short queues', 'Fresh off the drum roaster'],
+  taglineImagery: [
+    'small-batch roasts with the date on the bag',
+    'espresso pulled with intent',
+    'the first pour-over of the morning',
+    'coffee that tastes like where it grew',
+    'a glossy shot of crema',
+    'beans still warm from the drum',
+    'brews worth slowing down for',
+    'your corner café, taken seriously',
+  ],
+  taglinePromises: [
+    'roasted closer than you think',
+    'ground for how you actually brew',
+    'delivered within days of the roast',
+    'strong enough to skip the second cup',
+    'sourced from fourteen farms we can name',
+    'dialed in one variable at a time',
+  ],
+  faq: [
+    { q: 'How fresh is the coffee when it ships?', a: 'Every bag leaves within 48 hours of the roast, with the roast date printed on the label. Anything that sits longer than a week goes to the staff shelf, not the post.' },
+    { q: 'Do you grind to order?', a: 'Whole bean by default — or tell us your brewer and we match the grind. Espresso, moka, filter and press are all on the list.' },
+    { q: 'How does the subscription work?', a: 'Pick a bag size and a rhythm; most people settle on 250 g every second Friday. Pause, swap origins or move the date any time with one click.' },
+    { q: 'Can I visit the roastery?', a: 'Saturday tours run at ten and end with a cupping. It is free, it is loud, and you will leave smelling like coffee.' },
+  ],
+  testimonials: [
+    { quote: 'We put the {name} house blend on our own bar and guests started asking what changed. Shot timing is consistent bag after bag.', by: 'Café manager' },
+    { quote: 'The crema on their espresso lot is glossy enough to be smug about. {name} cups everything twice and you can taste the second pass.', by: 'Head roaster' },
+    { quote: 'I have bought from a dozen roasters and {name} is the only one whose roast date I stopped checking — it is always this week.', by: 'Green-bean buyer' },
+    { quote: 'My pour-over went from routine to the best ten minutes of the day. {name} even wrote the ratio on the bag for my grinder.', by: 'Weekend regular' },
+  ],
+};
+
+const FOOD_BAKERY: TopicVoice = {
+  nameNouns: ['Crumb', 'Loaf', 'Prove', 'Rye', 'Flour', 'Hearth'],
+  products: [
+    { name: 'Sourdough country loaf', price: 8, category: 'Bakery' },
+    { name: 'Cinnamon morning buns (4)', price: 12, category: 'Bakery' },
+    { name: 'Seasonal fruit galette', price: 22, category: 'Bakery' },
+    { name: 'Rye sandwich loaf', price: 9, category: 'Bakery' },
+    { name: 'Almond croissant', price: 5.5, category: 'Bakery' },
+  ],
+  posts: [
+    { title: 'Why our croissants take three days', excerpt: 'Lamination cannot be rushed. A walk through the folds, the rests, and the butter that makes the difference.' },
+    { title: 'Feeding a sourdough starter that survives weekends', excerpt: 'A schedule for bakers with lives. Your starter can wait — here is how to let it.' },
+  ],
+  galleryProjects: ['Pastry case, Saturday 7am', 'The lamination room', 'Bread for the winter fair'],
+  personas: [
+    { name: 'Ben Castellano', role: 'Pastry chef' },
+    { name: 'Rosa Lindqvist', role: 'Head baker' },
+    { name: 'Amos Berger', role: 'Mill partner' },
+  ],
+  stats: [
+    { value: '5:45', label: 'first loaves out of the oven' },
+    { value: '400', label: 'loaves out the door on Saturdays' },
+    { value: '3 days', label: 'for every single croissant' },
+  ],
+  featureIdeas: [
+    { title: 'Up before dawn', text: 'The ovens light at four so the case is full by seven. Whatever is left at closing rides the shelter van, never the bin.' },
+    { title: 'Real sourdough', text: 'Every loaf rises on a starter older than the shop, over a slow two-day prove. No commercial yeast, no shortcuts, no apologies.' },
+    { title: 'Pre-order the weekend', text: 'Reserve loaves and pastries by Thursday night and skip the Saturday queue. Your name goes on the bag and the bag goes behind the counter.' },
+    { title: 'Milled in-house', text: 'Heritage grain is milled the day before it is baked, one sack at a time. Flavor peaks inside a week, so the schedule bends around the mill.' },
+  ],
+  logoNames: ['The Crumb Report', 'Field & Flour', 'Prove & Press'],
+  longAbout:
+    'The bakehouse runs on a three-day rhythm: mill, prove, bake. Eleven people share one oven schedule taped to the wall, and the sourdough starter — Gertrude — is older than the business and treated accordingly.',
+  contactLine: '2 Ovenhouse Row, off the market square',
+  hoursLine: 'Wed–Sun from 6:30 · sold out means sold out',
+  heroKickers: ['From the bakehouse', 'Out of the oven at 5:45', 'Real bread, slow proved', 'The pastry case is full'],
+  taglineImagery: [
+    'bread with a real crust',
+    'a crumb worth tearing slowly',
+    'sourdough on a three-day clock',
+    'the pastry case at seven sharp',
+    'loaves with heritage grain in them',
+    'butter folded until it laminates',
+    'the bakehouse before sunrise',
+    'croissants that shatter properly',
+  ],
+  taglinePromises: [
+    'baked before the city wakes',
+    'proved slow, sold warm',
+    'milled in-house the day before',
+    'gone by noon most Saturdays',
+    'made with flour you can trace',
+    'worth the early alarm',
+  ],
+  faq: [
+    { q: 'When is the bread ready?', a: 'The first loaves land at 5:45 and the full case is stocked by seven. Baguettes come out again at noon — locals set alarms.' },
+    { q: 'Do you take pre-orders?', a: 'Order by Thursday night for weekend pickup and your bag waits behind the counter. Whole-loaf orders for cafés close on Wednesdays.' },
+    { q: 'Is everything really sourdough?', a: 'The breads, yes — every loaf rises on our own starter over two days. The laminated pastries use butter and patience instead.' },
+    { q: 'What happens to unsold bread?', a: 'The shelter van collects whatever is left at closing, every single day. Day-old loaves also become tomorrow’s crackers and croutons.' },
+  ],
+  testimonials: [
+    { quote: 'The crust on the {name} country loaf crackles as it cools — my kitchen sounds like rain at noon.', by: 'Head baker' },
+    { quote: '{name} laminates like a watchmaker. Twenty-seven layers, and on a good morning you can count them.', by: 'Pastry chef' },
+    { quote: 'Their rye took our flour and made it sing. {name} schedules the bake around mill day, which nobody else bothers to do.', by: 'Mill partner' },
+    { quote: 'I build my Saturdays around the seven o’clock pastry case. {name} sells out by noon and honestly it deserves to.', by: 'Weekend regular' },
+  ],
+};
+
+const FOOD_RESTAURANT: TopicVoice = {
+  nameNouns: ['Table', 'Hearth', 'Skillet', 'Harvest', 'Plate', 'Fig'],
+  products: [
+    { name: 'Chef’s tasting voucher (2)', price: 120, category: 'Dining' },
+    { name: 'House chili oil', price: 12, category: 'Pantry' },
+    { name: 'Sunday supper kit (serves 4)', price: 58, category: 'Kits' },
+    { name: 'The house cookbook', price: 35, category: 'Books' },
+    { name: 'Linen kitchen apron', price: 42, category: 'Goods' },
+  ],
+  posts: [
+    { title: 'Winter menu preview: five dishes we kept tasting', excerpt: 'Braises, brown butter and one surprising citrus dessert. What is landing on the chalkboard next month.' },
+    { title: 'A night on the pass, hour by hour', excerpt: 'Thirty-two seats, ninety minutes of fire. What service actually looks like from the kitchen side.' },
+  ],
+  galleryProjects: ['Harvest dinner series', 'The open kitchen rebuild', 'Sunday supper club'],
+  personas: [
+    { name: 'Elio Moretti', role: 'Head chef' },
+    { name: 'Colette Marchand', role: 'Front of house' },
+    { name: 'Nadia Boulos', role: 'Sommelier' },
+  ],
+  stats: [
+    { value: '32', label: 'seats, plus six at the counter' },
+    { value: '5', label: 'courses on the tasting' },
+    { value: '9', label: 'growers named on the menu' },
+  ],
+  featureIdeas: [
+    { title: 'Seasonal menu', text: 'The chalkboard changes with the market — what is good now is what we serve. Last month that meant rhubarb; this month it is blood orange.' },
+    { title: 'Chef’s counter', text: 'Six seats face the pass, close enough to hear the pans. The chef narrates when asked and stays quiet when not.' },
+    { title: 'Private dining', text: 'The back room seats fourteen under the wine wall, with its own shortened menu. One booking a night, never two.' },
+    { title: 'Named growers', text: 'Every menu lists the nine farms behind it, down to the butter. When a supplier changes, the menu says so in print.' },
+  ],
+  logoNames: ['The Standing Table', 'Course Notes', 'Supper Review'],
+  longAbout:
+    'The dining room seats thirty-two and the kitchen refuses to whisper — the pass is open, the menu is rewritten each morning, and the nine growers who feed the room are printed on it by name. Service runs long on purpose.',
+  contactLine: '31 Garland Street, corner of the arcade',
+  hoursLine: 'Dinner Wed–Sun from 18:00 · walk-ins at the counter',
+  heroKickers: ['Tonight at the pass', 'The menu changed this morning', 'Thirty-two seats, one kitchen', 'Now taking spring bookings'],
+  taglineImagery: [
+    'a table you will want to keep',
+    'plates that follow the market',
+    'dinner cooked within earshot',
+    'a menu written that morning',
+    'the kitchen at full song',
+    'suppers that run long',
+    'five courses, no ceremony',
+    'the chef’s counter on a Tuesday',
+  ],
+  taglinePromises: [
+    'seasonal down to the garnish',
+    'served without white tablecloths',
+    'cooked for the people in the room',
+    'sourced from nine named farms',
+    'open late enough to matter',
+    'worth crossing the river for',
+  ],
+  faq: [
+    { q: 'Do I need a reservation?', a: 'Weekends, yes — the book opens thirty days out and fills fast. Six counter seats are held for walk-ins every night.' },
+    { q: 'Can the tasting flex for dietary needs?', a: 'Tell us when you book and the kitchen rewrites your courses, not just one of them. Vegetarian and gluten-free versions exist as full menus of their own.' },
+    { q: 'Where does the food come from?', a: 'Nine growers, all named in print on the menu, most within an hour’s drive. When a supplier changes, the menu says so.' },
+    { q: 'Is the counter different from the dining room?', a: 'Same courses, better view — you face the pass and can hear the pans. The chef narrates when asked and stays quiet when not.' },
+  ],
+  testimonials: [
+    { quote: 'On my night off, {name} is where I eat. The pass runs quieter than mine and the plates land exactly when they should.', by: 'Head chef' },
+    { quote: 'The menu changed between my two visits and both times it read like the market that morning. {name} cooks the season, not the greatest hits.', by: 'Weekend regular' },
+    { quote: 'We sat at the {name} counter and watched five courses come together like choreography. Nobody raised their voice once.', by: 'Market neighbor' },
+    { quote: 'The pairing at {name} was obscure and exactly right, twice in one dinner. That does not happen by accident.', by: 'Sommelier' },
+  ],
 };
 
 const PLANTS: TopicContent = {
@@ -422,12 +705,12 @@ const PLANTS: TopicContent = {
     { value: '4.9/5', label: 'plant-parent rating' },
   ],
   featureIdeas: [
-    { title: 'Potted and ready', text: 'Every plant arrives in its forever pot with the right mix already in it.' },
-    { title: 'Care cards included', text: 'Light, water and feeding notes written for your plant, not the species average.' },
-    { title: 'Local delivery', text: 'Hand-delivered in the van, never boxed and shipped upside down.' },
-    { title: 'Plant rehab clinic', text: 'Bring us the struggling one. We diagnose, treat and send it home stronger.' },
-    { title: '30-day leaf guarantee', text: 'If it sulks in its first month, we replace it — no questions, no receipts.' },
-    { title: 'Seasonal drops', text: 'Small batches of rare finds announced to the list first.' },
+    { title: 'Potted and ready', text: 'Every plant arrives in its forever pot with the right mix already in it. No repot shock, no bag of soil left on your doorstep.' },
+    { title: 'Care cards included', text: 'Light, water and feeding notes written for your plant, not the species average. Each card is keyed to the exact pot size it ships in.' },
+    { title: 'Local delivery', text: 'Hand-delivered in the van, never boxed and shipped upside down. Same-week slots across the city, evenings included.' },
+    { title: 'Plant rehab clinic', text: 'Bring us the struggling one and we will diagnose, treat and send it home stronger. Most patients are back on the windowsill inside three weeks.' },
+    { title: '30-day leaf guarantee', text: 'If it sulks in its first month, we replace it — no questions, no receipts. Barely one plant in fifty ever comes back.' },
+    { title: 'Seasonal drops', text: 'Small batches of rare finds announced to the list first. The last variegated drop sold out in forty minutes.' },
   ],
   habitIdeas: [
     'Morning misting round', 'Check soil moisture before watering', 'Rotate pots toward the light',
@@ -449,6 +732,30 @@ const PLANTS: TopicContent = {
     'Repotting queue', 'Wishlist: rare aroids', 'Fertilizer ratios',
   ],
   chatContacts: ['Ivy', 'Marcus', 'Sana', 'Theo'],
+  logoNames: ['Leaf & Loam', 'The Potting Post', 'Verdant Weekly', 'Greenhouse Review', 'Root Collective', 'Urban Canopy'],
+  longAbout:
+    'The greenhouse began with forty cuttings on a fire-escape shelf and now holds more than three hundred species under one glass roof. We propagate nearly everything ourselves, pot in our own chunky mix, and keep a rehab bench for the plants people bring in half-loved.',
+  contactLine: '3 Glasshouse Row, by the canal',
+  hoursLine: 'Wed–Sun 9:00–18:00 · repotting bar on weekends',
+  heroKickers: ['Fresh from the greenhouse', 'New cuttings weekly', 'Grown here, not shipped', 'For brighter corners', 'Rooted locally'],
+  taglineImagery: ['unruly shelves of green', 'a jungle for small rooms', 'leaves in every window', 'slow-growing good things', 'the greenhouse at golden hour', 'plants with histories', 'cuttings rooted on the sill', 'a calmer kind of collecting'],
+  taglinePromises: ['grown with patience', 'happy in real apartments', 'delivered still humid from the glasshouse', 'hardier than they look', 'sold with honest care notes', 'ready to outlive the furniture'],
+  faq: [
+    { q: 'How do plants survive delivery?', a: 'They ride in the van, upright, hand-delivered — never boxed and couriered. If a leaf so much as creases in transit, we replace the plant.' },
+    { q: 'I kill everything. Where do I start?', a: 'A pothos or a snake plant, honestly. Both forgive missed waterings, and the care card that comes in the pot is written for your light, not the species average.' },
+    { q: 'How often should I actually water?', a: 'When the top few centimeters of soil are dry, not on a calendar. Push a finger in; the plant will not mind.' },
+    { q: 'Do you repot plants I already own?', a: 'Bring it to the weekend repotting bar with any pot you like. We supply the chunky mix, the mess stays here.' },
+    { q: 'What if my plant starts struggling?', a: 'Bring it to the rehab bench and we will diagnose it, usually on the spot. Most patients are back on their windowsill inside three weeks.' },
+    { q: 'Are any of your plants pet-safe?', a: 'Plenty — calatheas, ferns and most palms among them. Every price tag carries a paw mark when the plant is safe for cats and dogs.' },
+  ],
+  testimonials: [
+    { quote: 'The monstera I bought from {name} has thrown eleven new leaves in a year. The care card told me exactly which window it wanted.', by: 'Plant stylist' },
+    { quote: '{name} potted everything in their chunky mix before delivery — no repot shock, no bag of soil in my hallway.', by: 'Landscape designer' },
+    { quote: 'I brought in a half-dead calathea and the rehab bench sent it home thriving. {name} genuinely will not let a plant die of embarrassment.', by: 'Botanist' },
+    { quote: 'Our office jungle came from {name}, delivered up three flights and styled on the spot. A year on, every single plant is alive.', by: 'Greenhouse manager' },
+    { quote: 'The propagation workshop paid for itself in a month — my windowsill is a nursery now. {name} teaches the unglamorous parts too.', by: 'Nursery owner' },
+    { quote: 'Their cuttings root faster than anything I have bought elsewhere. {name} ships them still humid from the glasshouse.', by: 'Plant stylist' },
+  ],
 };
 
 const TECH: TopicContent = {
@@ -565,12 +872,12 @@ const TECH: TopicContent = {
     { value: '38', label: 'releases last month' },
   ],
   featureIdeas: [
-    { title: 'Instant deploys', text: 'Push to main and watch it go live — previews for every branch, rollbacks in one click.' },
-    { title: 'Realtime metrics', text: 'Latency, errors and throughput on one screen, streamed as they happen.' },
-    { title: 'Role-based access', text: 'Fine-grained permissions your security team will actually sign off on.' },
-    { title: 'API-first', text: 'Everything the UI does, the API does too — documented, versioned, stable.' },
-    { title: 'Audit logs', text: 'Every change, by whom, from where. Exportable and tamper-evident.' },
-    { title: 'SOC 2 ready', text: 'Compliance evidence collected as you work, not scrambled for at renewal.' },
+    { title: 'Instant deploys', text: 'Push to main and watch it go live — previews for every branch, rollbacks in one click. Median build-to-live time is forty seconds.' },
+    { title: 'Realtime metrics', text: 'Latency, errors and throughput on one screen, streamed as they happen. P50 and P99 sit side by side so regressions cannot hide.' },
+    { title: 'Role-based access', text: 'Fine-grained permissions your security team will actually sign off on. Scope by project, environment or a single API key.' },
+    { title: 'API-first', text: 'Everything the UI does, the API does too — documented, versioned, stable. Breaking changes get a twelve-month deprecation window.' },
+    { title: 'Audit logs', text: 'Every change, by whom, from where — exportable and tamper-evident. Retention runs two full years on every plan.' },
+    { title: 'SOC 2 ready', text: 'Compliance evidence collected as you work, not scrambled for at renewal. Auditors get a read-only portal instead of a zip file.' },
   ],
   habitIdeas: [
     'Review one PR before standup', 'Clear the error-tracker inbox', 'Write tomorrow’s top task',
@@ -592,6 +899,30 @@ const TECH: TopicContent = {
     'Onboarding friction log', 'Ideas: developer newsletter', 'Interview debrief — SRE role',
   ],
   chatContacts: ['Amara', 'Chris', 'Lena', 'Raj'],
+  logoNames: ['Fielder', 'Northbeam Labs', 'Relay & Co', 'Kitegrid', 'Standard Query', 'Opsline'],
+  longAbout:
+    'We started as three engineers tired of gluing the same five tools together at every job. Today the platform runs deploys, metrics and access control for more than two thousand teams — still built by people who carry the pager for their own code.',
+  contactLine: 'Suite 400, 88 Foundry Street',
+  hoursLine: 'Support around the clock · office hours Thursdays',
+  heroKickers: ['Now in public beta', 'Built for shipping teams', 'From commit to customer', 'Trusted in production', 'Less setup, more shipping'],
+  taglineImagery: ['the boring parts of shipping', 'deploys, metrics and access', 'your whole release path', 'infrastructure that behaves', 'the glue work', 'production at 2 a.m.', 'the pager that stays quiet', 'release day without the ritual'],
+  taglinePromises: ['automated past the point of worry', 'handled before the standup', 'quiet enough to forget', 'wired together properly', 'shipped without the ceremony', 'boring in the best possible way'],
+  faq: [
+    { q: 'How does rollback work?', a: 'Every deploy keeps the previous build warm, so rollback is one click and about four seconds. The audit log records who rolled what, and why if they tell it.' },
+    { q: 'Can we self-host?', a: 'Yes — the same binary we run, licensed per cluster, updated on your schedule. Air-gapped installs get a signed offline bundle.' },
+    { q: 'What happens when you have an outage?', a: 'The status page updates within minutes, written by an engineer rather than a lawyer. Post-incident reviews are published in full, including the embarrassing parts.' },
+    { q: 'How granular are permissions?', a: 'Down to a single environment or API key, grouped into roles your security team can actually review. Access changes land in the audit log as they happen.' },
+    { q: 'Do you throttle API usage?', a: 'Limits are generous and published, with headers that tell you where you stand. Hit one and you get a 429 with honest Retry-After, never a silent drop.' },
+    { q: 'How do we get our data out?', a: 'A documented export API and a one-click archive of everything you have ever stored, in open formats. Leaving should be easy — that is the point of staying.' },
+  ],
+  testimonials: [
+    { quote: 'We cut our deploy script from 400 lines to a webhook. {name} made Friday releases something we stopped scheduling meetings about.', by: 'Staff engineer' },
+    { quote: 'The P99 graph in {name} caught a regression our own dashboards missed for a week. It paid for the year in one afternoon.', by: 'SRE lead' },
+    { quote: 'Our audit prep went from a quarter of scrambling to a read-only link. {name} collects the evidence while we ship.', by: 'CTO, Fielder' },
+    { quote: 'I rolled back a bad canary from my phone, on a train. {name} treats rollback as a feature and it shows.', by: 'Staff engineer' },
+    { quote: 'The API does everything the UI does, documented and versioned. We built our whole internal portal on {name} without one support ticket.', by: 'Developer advocate' },
+    { quote: 'Onboarding a new service takes minutes, and the defaults are the ones we would have picked anyway. {name} feels engineered, not marketed.', by: 'Product manager' },
+  ],
 };
 
 const FITNESS: TopicContent = {
@@ -695,25 +1026,17 @@ const FITNESS: TopicContent = {
     'Sunrise yoga sessions', 'First pull-up wall of fame', 'Trail run weekend',
   ],
   personas: [
-    { name: 'Dana Reyes', role: 'Strength coach' },
-    { name: 'Mike O’Brien', role: 'Running coach' },
-    { name: 'Aisha Bello', role: 'Yoga instructor' },
     { name: 'Tom Keller', role: 'Physiotherapist' },
     { name: 'Grace Lin', role: 'Nutrition coach' },
   ],
   stats: [
     { value: '1,150', label: 'workouts logged this week' },
     { value: '87%', label: 'members hitting weekly goals' },
-    { value: '24', label: 'classes on the timetable' },
-    { value: '312', label: 'personal records this month' },
   ],
   featureIdeas: [
-    { title: 'Coach-built programs', text: 'Every block written by a human coach, adjusted to your equipment and week.' },
-    { title: 'Progress you can see', text: 'PRs, photos and volume charts that make slow progress visible.' },
-    { title: 'Form check videos', text: 'Upload a set, get frame-by-frame feedback from a coach within a day.' },
-    { title: 'Community challenges', text: 'Monthly team goals that make showing up the easy choice.' },
-    { title: 'Recovery tracking', text: 'Sleep, soreness and readiness — so hard days land on the right days.' },
-    { title: 'Nutrition templates', text: 'Plate-method meal guides that survive real kitchens and real schedules.' },
+    { title: 'Community challenges', text: 'Monthly team goals that make showing up the easy choice. Last month, 87 members logged 1,900 workouts between them.' },
+    { title: 'Recovery tracking', text: 'Sleep, soreness and readiness — so hard days land on the right days. A red morning automatically softens the evening session.' },
+    { title: 'Nutrition templates', text: 'Plate-method meal guides that survive real kitchens and real schedules. Each one builds from ten pantry staples, not thirty.' },
   ],
   habitIdeas: [
     'Morning stretch', '10k steps', 'Two liters of water',
@@ -735,6 +1058,175 @@ const FITNESS: TopicContent = {
     'Left knee watch list', 'Class feedback', 'Race-day checklist',
   ],
   chatContacts: ['Coach Dana', 'Mike', 'Aisha', 'Tom'],
+  logoNames: ['Stride Journal', 'The Rack Room', 'Tempo Club', 'Ironline', 'Coach Weekly', 'Trailhead Co'],
+  longAbout:
+    'It started as six people training in a rented unit with a stubborn belief that consistency beats intensity. Years on, the membership has grown but the idea has not: honest movement, unhurried progress and a community that notices when you skip a week.',
+  contactLine: 'Unit 2, 41 Foundry Yard',
+  hoursLine: 'Mon–Fri 6:00–21:00 · weekends 8:00–14:00',
+  heroKickers: ['All levels, honestly', 'Earn the rest day', 'Show up, we handle the rest', 'Start where you are'],
+  taglineImagery: ['small weekly wins', 'the long game', 'training you can keep', 'movement that fits your day', 'habits that hold', 'progress you can feel'],
+  taglinePromises: ['built around your week', 'without the mirror culture', 'kinder than it sounds', 'consistent beats heroic', 'made for actual schedules', 'harder to quit than to keep'],
+  faq: [
+    { q: 'I have not trained in years. Will I keep up?', a: 'Yes — every session scales to the person doing it, and half our members started from a long break. The first two weeks are deliberately gentle.' },
+    { q: 'What should I bring to my first session?', a: 'Water, flat shoes and clothes you can move in. Everything else is here, including the nerve — arrive ten minutes early and someone will show you around.' },
+    { q: 'Can I pause my membership?', a: 'Any time, from the app, for up to three months a year. Injuries and new babies get longer, no questions asked.' },
+  ],
+  testimonials: [
+    { quote: 'As a physio, I send patients to {name} because the progressions are honest. Nobody gets rushed back into anything.', by: 'Physiotherapist' },
+    { quote: 'The nutrition templates from {name} survived a house move and a toddler. Ten pantry staples, zero heroics — that is why they work.', by: 'Nutrition coach' },
+  ],
+};
+
+/* --------------------------- fitness voices ------------------------ */
+
+const FITNESS_GYM: TopicVoice = {
+  nameNouns: ['Rep', 'Forge', 'Iron', 'Rack', 'Circuit', 'Form'],
+  personas: [
+    { name: 'Dana Reyes', role: 'Strength coach' },
+    { name: 'Bo Jensen', role: 'Six a.m. regular' },
+    { name: 'Lena Brooks', role: 'Founding member' },
+  ],
+  stats: [
+    { value: '312', label: 'personal records this month' },
+    { value: '24', label: 'classes on the timetable' },
+    { value: '4', label: 'coaches on the floor' },
+  ],
+  featureIdeas: [
+    { title: 'Coach-built programs', text: 'Every block written by a human coach, adjusted to your equipment and week. Swap a barbell day for dumbbells and the volume rebalances itself.' },
+    { title: 'Progress you can see', text: 'PRs, photos and volume charts that make slow progress visible. Most members add a plate to their squat inside two blocks.' },
+    { title: 'Form check videos', text: 'Upload a set and get frame-by-frame feedback from a coach within a day. Average turnaround is under five hours.' },
+  ],
+  longAbout:
+    'The gym opened with one squat rack, a rowing machine and a stubborn belief that coaching beats equipment. Six years on there are four coaches, a hundred-odd members and a whiteboard of personal records that gets photographed more than the skyline.',
+  heroKickers: ['New block starts Monday', 'Coached, not templated', 'Strong is a habit', 'Chalk up, clock in'],
+  taglineImagery: [
+    'the last two reps',
+    'a barbell that levels with you',
+    'strength built in honest blocks',
+    'the squat rack at six a.m.',
+    'kettlebells and chalk dust',
+    'weights that add up quietly',
+    'deadlifts done properly',
+    'a coach who knows your name',
+  ],
+  taglinePromises: [
+    'programmed rep by honest rep',
+    'heavier by small increments',
+    'stronger by Friday',
+    'spotted from day one',
+    'no ego on the floor',
+    'measured in personal records',
+  ],
+  faq: [
+    { q: 'Do I need to know my way around a barbell?', a: 'No — your first three sessions are technique work with a coach, empty bar, zero audience. You load weight when your form says so, not the calendar.' },
+    { q: 'Is coaching included or extra?', a: 'Included. Every class has a coach on the floor and every member gets a written block, reviewed monthly.' },
+    { q: 'How busy does the floor get?', a: 'We cap every class at twelve, so there is always a free rack. The quiet gold is 13:00 to 16:00, if your day allows it.' },
+  ],
+  testimonials: [
+    { quote: 'I added forty kilos to my deadlift in a year at {name} and nobody ever made it weird. The coaching is relentless in the kindest way.', by: 'Founding member' },
+    { quote: 'The six a.m. crew at {name} is the reason I still train. Someone notices if your bar is missing.', by: 'Six a.m. regular' },
+    { quote: 'I filmed one ugly squat and had frame-by-frame notes from {name} before lunch. That single fix outlasted every program I bought online.', by: 'Strength coach' },
+  ],
+};
+
+const FITNESS_YOGA: TopicVoice = {
+  nameNouns: ['Asana', 'Breath', 'Mat', 'Stillness', 'Lotus', 'Root'],
+  personas: [
+    { name: 'Aisha Bello', role: 'Yoga instructor' },
+    { name: 'Ines Duarte', role: 'Breathwork teacher' },
+    { name: 'Wren Kapoor', role: 'Studio member' },
+  ],
+  stats: [
+    { value: '18', label: 'classes a week, two candlelit' },
+    { value: '8', label: 'mats max per class' },
+    { value: '96%', label: 'students back for a second class' },
+  ],
+  featureIdeas: [
+    { title: 'Small classes', text: 'Eight mats, never more, so the teacher sees every shoulder. Adjustments are offered, asked for and never assumed.' },
+    { title: 'Breath-first teaching', text: 'Every sequence is built on the breath count, not the clock. If the room is breathing fast, the flow slows down.' },
+    { title: 'Beginner series', text: 'A standing four-week on-ramp that starts from zero, twice a season. You learn the vocabulary before anyone says vinyasa at speed.' },
+  ],
+  longAbout:
+    'The studio holds eight mats, a shelf of blankets and no mirrors on purpose. Classes are built on breath counts rather than choreography, and the teachers still take each other’s classes every week.',
+  heroKickers: ['The mat is waiting', 'Breathe first', 'Small classes, soft light', 'Beginners welcome, always'],
+  taglineImagery: [
+    'an hour on the mat',
+    'breath before ambition',
+    'flows that meet you where you are',
+    'savasana worth staying for',
+    'yoga without the performance',
+    'a slow vinyasa at sunrise',
+    'the quiet end of the mat',
+    'stretching that undoes the desk',
+  ],
+  taglinePromises: [
+    'led by breath, not playlists',
+    'taught for real bodies',
+    'softer than it sounds, stronger than it looks',
+    'candlelit on Thursday nights',
+    'beginner-proof by design',
+    'calmer by the second class',
+  ],
+  faq: [
+    { q: 'Do I need to bring a mat?', a: 'Bring yours if you love it; otherwise studio mats, blocks and blankets are included and cleaned between every class. Bare feet and loose clothes are the whole kit.' },
+    { q: 'Which class should I start with?', a: 'Slow Flow or the beginner series — both assume nothing. Tell the teacher it is your first visit and they will keep an eye without hovering.' },
+    { q: 'I cannot touch my toes. Is that a problem?', a: 'It is the least interesting fact about you, and half the room is the same. Flexibility is a side effect here, never an entry requirement.' },
+  ],
+  testimonials: [
+    { quote: 'I came to {name} for my back and stayed for the breathing. It is the only hour of my week without a screen in it.', by: 'Studio member' },
+    { quote: 'Eight mats means the teacher actually sees you. {name} corrected a habit in my practice that a decade of videos never caught.', by: 'Breathwork teacher' },
+    { quote: 'The beginner series at {name} is the kindest on-ramp I have taught anywhere. People arrive terrified and leave with a practice.', by: 'Yoga instructor' },
+  ],
+};
+
+const FITNESS_RUN: TopicVoice = {
+  nameNouns: ['Stride', 'Tempo', 'Pace', 'Split', 'Trail', 'Mile'],
+  personas: [
+    { name: 'Mike O’Brien', role: 'Running coach' },
+    { name: 'Sol Andersen', role: 'Marathon finisher' },
+    { name: 'Ren Takahashi', role: 'Trail captain' },
+  ],
+  stats: [
+    { value: '5', label: 'pace groups every Tuesday' },
+    { value: '1,800', label: 'kilometers logged last season' },
+    { value: '61', label: 'first-time finishers this year' },
+  ],
+  featureIdeas: [
+    { title: 'Pace groups for every speed', text: 'Five groups from walk-run to sub-forty, each with a leader who holds the pace so you do not have to think. Nobody runs alone and nobody gets dropped.' },
+    { title: 'The route library', text: 'Forty measured routes with surface notes, sunrise ratings and where the water fountains actually work. Every route was run by a leader within the month.' },
+    { title: 'Race-day rehearsals', text: 'Six weeks out we rehearse the whole morning — fueling, pacing, even the queue for the portaloos. Race day should be the second time you do everything.' },
+  ],
+  longAbout:
+    'The club began as four people meeting under the bridge on Tuesdays, rain included. Now five pace groups leave from the same spot, and the only rule has never changed: start together, finish together, brag modestly.',
+  heroKickers: ['Lace up, log miles', 'The long run starts here', 'Every pace has a group', 'Race season is coming'],
+  taglineImagery: [
+    'the long run on Sunday',
+    'miles that stack up quietly',
+    'a pace you can hold',
+    'trail dust and negative splits',
+    'intervals with a finish line',
+    'strides down the river path',
+    'the 10k you keep chasing',
+    'tempo days that earn easy ones',
+  ],
+  taglinePromises: [
+    'run in groups of every speed',
+    'built one easy mile at a time',
+    'timed but never judged',
+    'rain or shine, mostly rain',
+    'paced by feel, proved by the watch',
+    'from couch to start line',
+  ],
+  faq: [
+    { q: 'What if I am the slowest one there?', a: 'Then you have a pace group and a leader whose whole job is you. Start together, finish together — it is the only club rule.' },
+    { q: 'Do I need fancy gear?', a: 'Shoes with some life in them and clothes for the weather; the rest is marketing. When you are ready for a watch, borrow one from the club shelf first.' },
+    { q: 'How long are the group runs?', a: 'Tuesdays are 5 to 8 km with intervals; Sundays stretch from 10 km to marathon pace work in season. Every distance has a shortcut home built in.' },
+  ],
+  testimonials: [
+    { quote: 'I joined {name} unable to run to the corner and finished a marathon eighteen months later. The pace group never once left me behind.', by: 'Marathon finisher' },
+    { quote: 'The Sunday long run with {name} is the best-planned two hours of my week. Water stops, surface notes, and someone always holds the pace.', by: 'Trail captain' },
+    { quote: 'As a coach, what {name} gets right is patience — easy miles stay easy. That discipline is why their runners stay healthy.', by: 'Running coach' },
+  ],
 };
 
 const FASHION: TopicContent = {
@@ -851,12 +1343,12 @@ const FASHION: TopicContent = {
     { value: '0', label: 'unsold stock destroyed — ever' },
   ],
   featureIdeas: [
-    { title: 'Made to last', text: 'Reinforced seams, natural fibers and construction meant for a decade of wear.' },
-    { title: 'True-to-you sizing', text: 'Real measurements on every product page, taken from the actual garment.' },
-    { title: 'Deadstock fabrics', text: 'Limited runs cut from rescued mill fabric — when it is gone, it is gone.' },
-    { title: 'Free alterations', text: 'First hem, nip or tuck on us at any of our studios.' },
-    { title: 'Repair for life', text: 'Send it back tired and we will mend it, forever, for free.' },
-    { title: 'Small-batch drops', text: 'New pieces land monthly in numbers we can sew well.' },
+    { title: 'Made to last', text: 'Reinforced seams, natural fibers and construction meant for a decade of wear. Stress points are bar-tacked, never glued.' },
+    { title: 'True-to-you sizing', text: 'Real measurements on every product page, taken from the actual garment. Pit to pit, sleeve and hem, down to the half centimeter.' },
+    { title: 'Deadstock fabrics', text: 'Limited runs cut from rescued mill fabric — when it is gone, it is gone. The spring linen came off a roll woven in 1994.' },
+    { title: 'Free alterations', text: 'First hem, nip or tuck on us at any of our studios. Most alterations are ready inside a week.' },
+    { title: 'Repair for life', text: 'Send it back tired and we will mend it, forever, for free. The atelier repaired six hundred garments last year alone.' },
+    { title: 'Small-batch drops', text: 'New pieces land monthly in numbers we can sew well. A typical run is sixty garments, numbered inside the collar.' },
   ],
   habitIdeas: [
     'Steam tomorrow’s outfit', 'Sketch one silhouette', 'Pin three references',
@@ -878,6 +1370,30 @@ const FASHION: TopicContent = {
     'Lookbook shot list', 'Pop-up checklist', 'Alteration queue',
   ],
   chatContacts: ['Camille', 'Jae', 'Sofia', 'Omar'],
+  logoNames: ['Hemline Review', 'The Cutting Table', 'Cloth & Craft', 'Studio Notes', 'Warp Weekly', 'Atelier Index'],
+  longAbout:
+    'The studio cuts every pattern in-house and sews in runs small enough to check each seam by hand. Fabric comes from mill archives and deadstock rolls, which means a piece you buy here will quite literally never be reprinted.',
+  contactLine: 'Atelier, 27 Ribbon Street, second floor',
+  hoursLine: 'Fittings Tue–Sat 11:00–19:00 · by appointment',
+  heroKickers: ['New drop: sixty pieces', 'Cut and sewn in-house', 'Deadstock, reborn', 'Fewer, better', 'The spring line is in'],
+  taglineImagery: ['clothes with a spine', 'seams worth inspecting', 'a quieter wardrobe', 'fabric with a past life', 'pieces cut to be kept', 'the good linen', 'hems that fall exactly right', 'a numbered run of sixty'],
+  taglinePromises: ['made well and worn often', 'sewn in runs of sixty', 'mended for life, free', 'sized to real bodies', 'built to outlast the trend cycle', 'finished by hand'],
+  faq: [
+    { q: 'How do I pick a size?', a: 'Every product page lists the garment’s real measurements — pit to pit, sleeve, hem — taken from the actual piece. Match them against something you own and love; it beats any letter on a label.' },
+    { q: 'What is your returns window?', a: 'Thirty days, unworn, no interrogation — and the return label is in the parcel. Exchanges for another size jump the sewing queue.' },
+    { q: 'What does “deadstock fabric” mean?', a: 'Cloth rescued from mill archives and cancelled orders — woven, paid for, then abandoned. When a roll runs out, that piece is never reprinted.' },
+    { q: 'Do you really repair for life?', a: 'Send anything of ours back tired and the atelier mends it free, forever. Last year that was six hundred garments, including one jacket on its fourth zip.' },
+    { q: 'How should I wash the linen?', a: 'Cold, gentle, line dry, and embrace the wrinkle — it is the fiber relaxing, not failing. An iron on damp linen works magic if you must.' },
+    { q: 'Are alterations included?', a: 'Your first hem, nip or tuck is on us at any studio. Most alterations are ready inside a week, fitted by the people who cut the pattern.' },
+  ],
+  testimonials: [
+    { quote: 'The {name} wrap dress is the only thing I own with real measurements on the page. It arrived fitting like the second fitting, not the first.', by: 'Stylist' },
+    { quote: 'I sent a five-year-old jacket back and {name} rebuilt the cuffs for free. It came home better than I bought it.', by: 'Creative director' },
+    { quote: 'You can read the construction from the inside — finished seams, bar-tacked stress points. {name} sews like someone will check.', by: 'Pattern maker' },
+    { quote: 'The spring linen came off a 1994 roll and you can feel the difference. {name} treats fabric like the whole point, because it is.', by: 'Textile buyer' },
+    { quote: 'Sixty pieces, numbered in the collar, gone in a week. My {name} coat is number eleven and I know its whole story.', by: 'Studio photographer' },
+    { quote: 'Their denim broke in exactly the way the fit notes promised. {name} writes sizing copy like they expect to be quoted.', by: 'Stylist' },
+  ],
 };
 
 const PHOTOGRAPHY: TopicContent = {
@@ -994,12 +1510,12 @@ const PHOTOGRAPHY: TopicContent = {
     { value: '48h', label: 'average gallery delivery' },
   ],
   featureIdeas: [
-    { title: 'All-day coverage', text: 'From getting ready to the last dance — no hourly clock-watching.' },
-    { title: 'Online proofing galleries', text: 'Private, password-protected galleries your family can actually use.' },
-    { title: 'Archival prints', text: 'Museum-grade paper and pigment inks rated for a century.' },
-    { title: 'Fast turnaround', text: 'Sneak peeks in 48 hours, full galleries inside two weeks.' },
-    { title: 'Second shooter included', text: 'Two angles on every moment that matters.' },
-    { title: 'Print-release licensing', text: 'Your photos are yours — print them anywhere, forever.' },
+    { title: 'All-day coverage', text: 'From getting ready to the last dance — no hourly clock-watching. A typical wedding gallery runs past six hundred finished frames.' },
+    { title: 'Online proofing galleries', text: 'Private, password-protected galleries your family can actually use. Favorites sync straight into the print order.' },
+    { title: 'Archival prints', text: 'Museum-grade paper and pigment inks rated for a century. Every print ships flat, signed and sleeved.' },
+    { title: 'Fast turnaround', text: 'Sneak peeks in 48 hours, full galleries inside two weeks. The studio record is nine days for a fourteen-hour festival.' },
+    { title: 'Second shooter included', text: 'Two angles on every moment that matters. While one lens holds the vows, the other watches the back row.' },
+    { title: 'Print-release licensing', text: 'Your photos are yours — print them anywhere, forever. The release arrives with the gallery, written in plain language.' },
   ],
   habitIdeas: [
     'Shoot one frame daily', 'Back up the cards', 'Edit for 25 minutes',
@@ -1021,6 +1537,30 @@ const PHOTOGRAPHY: TopicContent = {
     'Gear wishlist', 'Editing recipes', 'Location scouting log',
   ],
   chatContacts: ['Elias', 'Mara', 'Ken', 'Ruth'],
+  logoNames: ['Aperture Daily', 'The Contact Sheet', 'Frame & Field', 'Darkroom Digest', 'Studio Light Co', 'Print Room Press'],
+  longAbout:
+    'The studio shoots portraits, weddings and the occasional harbor in fog, and prints nearly everything on paper heavy enough to feel. A quarter of a million frames sit in the archive, backed up twice and culled hard to the twelve that matter per job.',
+  contactLine: 'Studio 5, 19 Salt Lane, harbor side',
+  hoursLine: 'Sittings Wed–Sun · golden hour by booking',
+  heroKickers: ['Now booking this season', 'Shot on real light', 'From the darkroom', 'Prints, not pixels', 'Twelve frames that matter'],
+  taglineImagery: ['light doing its quiet work', 'the frames between poses', 'faces at ease', 'one honest window', 'moments at full resolution', 'the keeper frame', 'twelve frames that matter', 'portraits without the stiffness'],
+  taglinePromises: ['caught and printed to last', 'kept beautifully', 'delivered inside two weeks', 'shot without the stiffness', 'framed like it happened', 'yours to print forever'],
+  faq: [
+    { q: 'How far ahead should we book?', a: 'Weddings run six to twelve months out — spring Saturdays go first. Portrait sittings can usually land within three weeks.' },
+    { q: 'When do we see the photos?', a: 'A sneak peek of a dozen frames inside 48 hours, the full gallery within two weeks. The studio record is nine days for a fourteen-hour festival.' },
+    { q: 'What does the print release cover?', a: 'Everything in your gallery, printable anywhere, forever — it arrives with the gallery in plain language. We only ask that publications credit the studio.' },
+    { q: 'Do you travel for shoots?', a: 'Happily. Travel inside the region is included; farther afield we quote flights and a modest per diem, never a markup.' },
+    { q: 'What if the weather turns?', a: 'We scout a covered fallback for every location in advance, and honestly, overcast light flatters faces. Rescheduling within the season is free.' },
+    { q: 'Can we get the RAW files?', a: 'The gallery is the finished work, so no — but nothing meaningful is left out of it. A typical wedding delivers over six hundred edited frames.' },
+  ],
+  testimonials: [
+    { quote: 'Our gallery from {name} arrived in nine days and made my mother cry twice. The frames between the poses are the ones we printed.', by: 'Gallery curator' },
+    { quote: '{name} posed people who hate posing — half the shots happened mid-laugh on a walk. Nobody looks stiff in six hundred frames.', by: 'Photo editor' },
+    { quote: 'The A2 print above our mantel is from a single window and no strobes. {name} does more with one pane of glass than most do with a truck of gear.', by: 'Portrait photographer' },
+    { quote: 'They scanned forty years of family negatives, dust and all, and backed them up twice. {name} treats an archive like it matters.', by: 'Retoucher' },
+    { quote: 'The second shooter caught the back row wiping tears while the vows were shot from the front. With {name} nothing important escapes.', by: 'Studio assistant' },
+    { quote: 'Print release in plain language, favorites synced to the print order — {name} makes the after-part effortless too.', by: 'Gallery curator' },
+  ],
 };
 
 const TRAVEL: TopicContent = {
@@ -1138,12 +1678,12 @@ const TRAVEL: TopicContent = {
     { value: '0', label: 'tourist traps recommended' },
   ],
   featureIdeas: [
-    { title: 'Locals-first itineraries', text: 'Routes built by people who live there, not by an algorithm scraping reviews.' },
-    { title: 'Small groups only', text: 'Never more than eight travelers — the whole point is to fit in the taxi.' },
-    { title: 'Flexible rebooking', text: 'Plans change. Move any trip up to a week before departure, free.' },
-    { title: 'Offline everything', text: 'Maps, tickets and phrase sheets that work in airplane mode.' },
-    { title: 'Carbon-aware routing', text: 'Trains over flights where the map allows, with honest trade-off notes.' },
-    { title: '24/7 trip support', text: 'A human on the line in your time zone, not a chatbot in ours.' },
+    { title: 'Locals-first itineraries', text: 'Routes built by people who live there, not by an algorithm scraping reviews. Every stop was walked by a guide within the last year.' },
+    { title: 'Small groups only', text: 'Never more than eight travelers — the whole point is to fit in the taxi. Most departures run at six.' },
+    { title: 'Flexible rebooking', text: 'Plans change, so move any trip up to a week before departure, free. It takes one email, not a phone queue.' },
+    { title: 'Offline everything', text: 'Maps, tickets and phrase sheets that work in airplane mode. A full city pack downloads in under 40 MB.' },
+    { title: 'Carbon-aware routing', text: 'Trains over flights where the map allows, with honest trade-off notes. Lisbon to Madrid reads "nine hours, one long lunch."' },
+    { title: '24/7 trip support', text: 'A human on the line in your time zone, not a chatbot in ours. Median overnight answer time is four minutes.' },
   ],
   habitIdeas: [
     'Learn five local words', 'Journal one page', 'Walk a street you haven’t',
@@ -1165,6 +1705,30 @@ const TRAVEL: TopicContent = {
     'Budget tracker notes', 'Train timetable clippings', 'Next trip ideas',
   ],
   chatContacts: ['Nadia', 'Paolo', 'June', 'Felix'],
+  logoNames: ['Waypoint Journal', 'The Slow Route', 'Meridian Post', 'Field Atlas', 'Departures Desk', 'Harbor & Rail'],
+  longAbout:
+    'We plan trips the way locals give directions — by café, corner and shortcut, not by star rating. Every itinerary is walked by a guide before it is sold, which is why the destination list grows slowly and the repeat-traveler list does not.',
+  contactLine: '2nd floor, 8 Meridian Arcade',
+  hoursLine: 'Trip desk Mon–Fri 9:00–18:00 · on call while you travel',
+  heroKickers: ['Shoulder season is here', 'Walked before sold', 'Eight seats, no more', 'Pack lighter, go further', 'New routes for spring'],
+  taglineImagery: ['night trains and slow mornings', 'the streets past the landmarks', 'two weeks, one bag', 'places locals point to', 'the long way round', 'maps with margin notes', 'shoulder season, every season', 'breakfast in a new alphabet'],
+  taglinePromises: ['routed by people who live there', 'worth the jet lag', 'planned down to the café', 'booked without the hold music', 'paced for actual humans', 'guided in groups of eight'],
+  faq: [
+    { q: 'How big are the groups?', a: 'Never more than eight travelers — the whole point is to fit in one taxi. Most departures run at six.' },
+    { q: 'Can I change my dates after booking?', a: 'Move any trip up to a week before departure, free, with one email. No phone queue, no change-fee roulette.' },
+    { q: 'How much walking should I expect?', a: 'Most days cover six to ten relaxed kilometers with long café stops built in. Every itinerary marks the two genuinely steep days in advance.' },
+    { q: 'Do the itineraries work offline?', a: 'Maps, tickets and phrase sheets all work in airplane mode; a full city pack downloads in under 40 MB. Wi-Fi is a bonus, never a dependency.' },
+    { q: 'Is the trip guided the whole time?', a: 'Mornings are guided by someone who lives there; afternoons are yours, with a shortlist locals actually use. Support stays on call around the clock either way.' },
+    { q: 'What about trains versus flights?', a: 'Where the map allows, we route by rail and say so honestly — Lisbon to Madrid reads "nine hours, one long lunch." Carbon notes appear next to every leg.' },
+  ],
+  testimonials: [
+    { quote: 'Our {name} guide walked us past the queue and into a courtyard lunch no app knows about. Eight of us, one long table.', by: 'Travel writer' },
+    { quote: 'The offline pack from {name} saved the whole Kyoto day when my roaming died. Tickets, maps, phrases — all still there.', by: 'Expedition lead' },
+    { quote: 'I moved the departure twice — new baby — and {name} rebooked everything with one email. No hold music, no penalty.', by: 'Concierge' },
+    { quote: 'The night-train leg read "fall asleep in one country, wake in another" and it delivered exactly that. {name} plans in sentences, not spreadsheets.', by: 'Trip designer' },
+    { quote: 'Every stop on the Oaxaca route had been walked by our guide within the year — you could taste the difference. {name} sells nothing it has not eaten.', by: 'Local guide' },
+    { quote: 'Six travelers, shoulder season, half the crowds and softer light. {name} talked us out of July and we owe them for it.', by: 'Travel writer' },
+  ],
 };
 
 const MUSIC: TopicContent = {
@@ -1269,25 +1833,16 @@ const MUSIC: TopicContent = {
     'Tour poster series', 'Music video stills', 'Rehearsal space build',
   ],
   personas: [
-    { name: 'Remy Laurent', role: 'Producer' },
-    { name: 'Tasha Green', role: 'Vocalist' },
-    { name: 'Oli Sandoval', role: 'Drummer' },
-    { name: 'Mia Torres', role: 'Booking agent' },
-    { name: 'Gus Meyer', role: 'Sound engineer' },
+    { name: 'Priya Raman', role: 'Longtime fan' },
+    { name: 'Cal Whitmore', role: 'Record shop owner' },
   ],
   stats: [
-    { value: '120+', label: 'shows played' },
     { value: '1.2M', label: 'streams this year' },
-    { value: '9', label: 'cities on the tour' },
-    { value: '3', label: 'EPs released' },
+    { value: '6', label: 'releases in the catalog' },
   ],
   featureIdeas: [
-    { title: 'Live session videos', text: 'One take, one room, no edits — the songs as they actually sound.' },
-    { title: 'Lossless downloads', text: 'Every release in full resolution, yours to keep offline.' },
-    { title: 'Early ticket access', text: 'Members hear about shows before the posters go up.' },
-    { title: 'Behind-the-scenes feed', text: 'Demos, voice memos and studio arguments, unfiltered.' },
-    { title: 'Vinyl-first releases', text: 'Pressings land two weeks before streaming, numbered and signed.' },
-    { title: 'Sample pack library', text: 'Stems and loops from our sessions, cleared for your tracks.' },
+    { title: 'Lossless downloads', text: 'Every release in full resolution, yours to keep offline. The 24-bit files land the same day as streaming.' },
+    { title: 'Behind-the-scenes feed', text: 'Demos, voice memos and honest arguments, unfiltered. The chorus of the new single first appeared here as a forty-second phone clip.' },
   ],
   habitIdeas: [
     'Practice scales for 15 minutes', 'Write eight bars', 'One ear-training drill',
@@ -1309,6 +1864,179 @@ const MUSIC: TopicContent = {
     'Tour budget', 'Gear repair list', 'Song ideas from voice memos',
   ],
   chatContacts: ['Remy', 'Tasha', 'Oli', 'Mia'],
+  logoNames: ['The Owl Room', 'Backline Weekly', 'Analog Heart', 'Pressing Matters', 'Soundcheck Post', 'Night Signal'],
+  longAbout:
+    'The catalog grew sideways — one release at a time, each made the stubborn way and paid for by the last. Everything comes from the same small crew and goes out when it is ready, not when the quarter ends.',
+  contactLine: '12 Vine Alley, above the print shop',
+  hoursLine: 'Doors usually 20:00 · mail answered by noon',
+  heroKickers: ['New this season', 'Made loud, made honest', 'For headphones and kitchens', 'The next one is coming'],
+  taglineImagery: ['three chords and intent', 'music you can stand next to', 'tape hiss and all', 'songs that survive the kitchen speaker', 'a catalog with no filler', 'the good kind of loud'],
+  taglinePromises: ['recorded honest', 'kept analog on purpose', 'made for repeat listens', 'louder than the algorithm', 'released when it is ready', 'worth owning twice'],
+  faq: [
+    { q: 'Where can I buy the music directly?', a: 'The web store, where the money actually reaches the people who made it. Physical orders ship Mondays and Thursdays, wrapped by hand.' },
+    { q: 'Can I use a track in my film or ad?', a: 'Write to us with the scene and the budget — licensing answers usually go out inside a week. Student films get a soft rate, always.' },
+    { q: 'How do I best support the project?', a: 'Buy direct, come to things, tell one friend. That chain still outperforms every algorithm we have met.' },
+  ],
+  testimonials: [
+    { quote: 'I stock everything {name} puts out and it never sits long. People come in asking for it by name.', by: 'Record shop owner' },
+    { quote: 'Been following {name} since the first release and the quality bar has never dipped. They put it out when it is ready and you can hear that.', by: 'Longtime fan' },
+  ],
+};
+
+/* ---------------------------- music voices ------------------------- */
+
+const MUSIC_PODCAST: TopicVoice = {
+  nameNouns: ['Signal', 'Episode', 'Airwave', 'Rewind', 'Transcript', 'Frequency'],
+  personas: [
+    { name: 'Ira Chen', role: 'Host' },
+    { name: 'Bex Aluko', role: 'Audio editor' },
+    { name: 'June Malek', role: 'Weekly listener' },
+  ],
+  stats: [
+    { value: '120', label: 'episodes in the feed' },
+    { value: '48k', label: 'listeners every week' },
+    { value: '92%', label: 'average listen-through' },
+  ],
+  featureIdeas: [
+    { title: 'Full transcripts', text: 'Every episode ships with a complete, searchable transcript the same day. Quote us accurately — we make it easy on purpose.' },
+    { title: 'Listener mailbag', text: 'One episode a month is built from listener questions, credited by first name. The best question so far came from a nine-year-old.' },
+    { title: 'Chaptered episodes', text: 'Skip straight to the segment you came for — every episode is chaptered by hand. The cold open is always worth it anyway.' },
+  ],
+  longAbout:
+    'It started as two people and one microphone in a coat closet, published on a Tuesday because that felt polite. A hundred-plus episodes later the closet has better foam, the interviews run long on purpose, and every minute is still cut by hand.',
+  heroKickers: ['New episode Tuesdays', 'Season three, now playing', 'Interviews, unhurried', 'For the long commute'],
+  taglineImagery: [
+    'conversations that outgrow the episode',
+    'interviews past the press-tour answers',
+    'two mics and no agenda',
+    'episodes cut with care',
+    'listeners who stay to the credits',
+    'the question the host almost skipped',
+    'a podcast that respects your commute',
+    'voices close to the mic',
+  ],
+  taglinePromises: [
+    'published every other Tuesday',
+    'edited until it earns your hour',
+    'transcribed in full, always',
+    'no ads in the middle of a thought',
+    'asked with genuine curiosity',
+    'worth the whole commute',
+  ],
+  faq: [
+    { q: 'How often do episodes come out?', a: 'Every other Tuesday, early enough for the morning commute. Seasons run ten episodes with a mailbag in the middle.' },
+    { q: 'Do you publish transcripts?', a: 'Every episode, in full, the same day it airs — searchable and quotable. Corrections get footnoted rather than quietly patched.' },
+    { q: 'Can I pitch a guest or a topic?', a: 'Please do — the mailbag address is read by the hosts, not an intern. Two of last season’s best episodes started as listener pitches.' },
+  ],
+  testimonials: [
+    { quote: 'I plan my commute around {name}. The interviews go where the press tour never does, and the edit respects your time.', by: 'Weekly listener' },
+    { quote: 'The transcripts alone put {name} ahead of shows twice its size. I have quoted episode forty in three different meetings.', by: 'Host' },
+    { quote: 'You can hear the edit craft — no rambling middles, chapters where they should be. {name} cuts tape like it costs money.', by: 'Audio editor' },
+  ],
+};
+
+const MUSIC_BAND: TopicVoice = {
+  nameNouns: ['Chord', 'Reverb', 'Encore', 'Amplitude', 'Feedback', 'Anthem'],
+  personas: [
+    { name: 'Tasha Green', role: 'Vocalist' },
+    { name: 'Mia Torres', role: 'Booking agent' },
+    { name: 'Frankie Doyle', role: 'Venue owner' },
+  ],
+  stats: [
+    { value: '120+', label: 'shows played' },
+    { value: '9', label: 'cities on the tour' },
+    { value: '300', label: 'vinyl copies, numbered by hand' },
+  ],
+  featureIdeas: [
+    { title: 'Live session videos', text: 'One take, one room, no edits — the songs as they actually sound. Filmed on two cameras in the rehearsal space.' },
+    { title: 'Early ticket access', text: 'Members hear about shows before the posters go up. The last two Owl Room dates sold out in the presale.' },
+    { title: 'Vinyl-first releases', text: 'Pressings land two weeks before streaming, numbered and signed. The last run was three hundred copies on 180-gram black.' },
+  ],
+  longAbout:
+    'Three EPs, one rented cabin and a tape machine that only mostly works — that is the discography so far. The songs get written in the rehearsal space above the print shop and road-tested on stage before anything is allowed near a studio.',
+  contactLine: 'Bookings via the Owl Room, 12 Vine Alley',
+  hoursLine: 'Rehearsals nightly · doors usually 20:00',
+  heroKickers: ['New EP out now', 'On tour this spring', 'Pressed on vinyl first', 'From the rehearsal room'],
+  taglineImagery: [
+    'songs with the amps still warm',
+    'riffs written upstairs',
+    'the encore nobody planned',
+    'vinyl pressed before it streams',
+    'a setlist that risks something',
+    'gigs close enough to feel',
+    'the van, the stage, the song',
+    'albums made the stubborn way',
+  ],
+  taglinePromises: [
+    'played loud where it matters',
+    'road-tested before it is released',
+    'pressed in numbered runs',
+    'written upstairs, tested downtown',
+    'mixed for the back row',
+    'louder in person',
+  ],
+  faq: [
+    { q: 'When are you playing near me?', a: 'The tour page updates the moment a date is inked, members hear first. Nine cities this spring, two more pending a venue signature.' },
+    { q: 'Is the vinyl still available?', a: 'The last pressing was three hundred numbered copies and it went in a weekend. A repress happens when two hundred names join the waitlist — it is at 161.' },
+    { q: 'Can we book the band?', a: 'Through the Owl Room — festivals, basements and weddings with character all considered. Send a date and a room size; the rider is one page and mostly polite.' },
+  ],
+  testimonials: [
+    { quote: '{name} sold out our room twice and the crowd sang the b-sides. Book them before their fee grows up.', by: 'Venue owner' },
+    { quote: 'Number 114 of 300 sits on my shelf and the live set is somehow better. {name} in a small room is the whole argument for small rooms.', by: 'Longtime fan' },
+    { quote: 'They road-test everything before it is recorded, and you can hear it — no studio polish hiding a weak chorus. {name} earns the encore.', by: 'Booking agent' },
+  ],
+};
+
+const MUSIC_STUDIO: TopicVoice = {
+  nameNouns: ['Analog', 'Console', 'Session', 'Octave', 'Preamp', 'Monitor'],
+  personas: [
+    { name: 'Remy Laurent', role: 'Producer' },
+    { name: 'Gus Meyer', role: 'Sound engineer' },
+    { name: 'Ada Winters', role: 'Session vocalist' },
+  ],
+  stats: [
+    { value: '2', label: 'live rooms, one echo chamber' },
+    { value: '48', label: 'channels on the analog desk' },
+    { value: '9 days', label: 'median record turnaround' },
+  ],
+  featureIdeas: [
+    { title: 'Treated rooms', text: 'Two live rooms tuned by ear and by math, plus a stairwell echo chamber we will not apologize for. Drums breathe here without eating the vocal.' },
+    { title: 'Stems inside a week', text: 'Rough mixes leave with you the same night; labeled stems follow within seven days. Nobody chases an engineer for files here.' },
+    { title: 'Sample pack library', text: 'Stems and loops from our sessions, cleared for your tracks. Every pack ships with tempo and key already tagged.' },
+  ],
+  longAbout:
+    'The desk is a 48-channel analog veteran with initials scratched under the armrest by three decades of engineers. Two tuned rooms, a stairwell echo chamber and a strict rule: rough mixes go home with you the same night.',
+  contactLine: 'Door B, 4 Pressing Plant Yard',
+  hoursLine: 'Sessions daily from 10:00 · nights by arrangement',
+  heroKickers: ['Now booking sessions', 'Two rooms, one echo chamber', 'Analog desk, digital patience', 'Mixed and mastered here'],
+  taglineImagery: [
+    'sessions that run past midnight',
+    'a console with stories in it',
+    'the red recording light on',
+    'mixes you can stand inside',
+    'tracking drums till they breathe',
+    'the studio hush before a take',
+    'mastering that respects the mix',
+    'one more take in the booth',
+  ],
+  taglinePromises: [
+    'engineered, never over-polished',
+    'tuned rooms, honest rates',
+    'stems delivered inside a week',
+    'booked by the song or the day',
+    'quiet enough to hear the felt',
+    'printed to tape on request',
+  ],
+  faq: [
+    { q: 'What does a day in the studio cost?', a: 'A flat day rate with an engineer included — no hidden hourly meter, no surprise gear charges. Book by the song if that fits your project better.' },
+    { q: 'Can I bring my own engineer?', a: 'Of course — the desk manual is laminated and the house engineer stays on hand for the first hour. Our patchbay is documented, which they will appreciate.' },
+    { q: 'Do you master records tracked elsewhere?', a: 'Yes — send references and the mix, and you will have a master and honest notes within the week. Loudness targets are a conversation, not a default.' },
+  ],
+  testimonials: [
+    { quote: 'We tracked drums at {name} in one afternoon and the rooms did half the mixing. The stems arrived labeled better than our own sessions.', by: 'Producer' },
+    { quote: 'The echo chamber at {name} is on every chorus of our record. You cannot plugin your way to that sound.', by: 'Session vocalist' },
+    { quote: 'Their desk has survived three decades and it shows in the best way. {name} runs sessions like the tape is always rolling.', by: 'Sound engineer' },
+  ],
 };
 
 const WELLNESS: TopicContent = {
@@ -1425,12 +2153,12 @@ const WELLNESS: TopicContent = {
     { value: '12k', label: 'minutes meditated by members' },
   ],
   featureIdeas: [
-    { title: 'Therapist-designed', text: 'Every ritual and treatment written with licensed practitioners.' },
-    { title: 'Clean ingredients only', text: 'Full ingredient lists, no fragrance mysteries, nothing we would not use ourselves.' },
-    { title: 'Book in two taps', text: 'See real availability and reserve without a phone call.' },
-    { title: 'Personal ritual plans', text: 'A routine sized to your actual week, not an influencer’s.' },
-    { title: 'Quiet hours', text: 'Phone-free rooms and unhurried appointments — we never double-book.' },
-    { title: 'Gift-ready packaging', text: 'Everything arrives wrapped, with a handwritten note if you like.' },
+    { title: 'Therapist-designed', text: 'Every ritual and treatment written with licensed practitioners. The sleep program alone went through three clinical reviewers.' },
+    { title: 'Clean ingredients only', text: 'Full ingredient lists, no fragrance mysteries, nothing we would not use ourselves. Every formula stays under twenty ingredients.' },
+    { title: 'Book in two taps', text: 'See real availability and reserve without a phone call. Rescheduling is self-serve up to four hours before.' },
+    { title: 'Personal ritual plans', text: 'A routine sized to your actual week, not an influencer’s. Ten minutes on weekdays, twenty on Sundays.' },
+    { title: 'Quiet hours', text: 'Phone-free rooms and unhurried appointments — we never double-book. Every treatment ends with ten unscheduled minutes.' },
+    { title: 'Gift-ready packaging', text: 'Everything arrives wrapped, with a handwritten note if you like. The cards are written by a person with a real pen.' },
   ],
   habitIdeas: [
     'Morning pages', 'Ten deep breaths before email', 'SPF every morning',
@@ -1452,6 +2180,30 @@ const WELLNESS: TopicContent = {
     'Practitioner recommendations', 'Breathwork scripts', 'Sleep log observations',
   ],
   chatContacts: ['Claire', 'Ravi', 'Hana', 'Lucia'],
+  logoNames: ['Stillpoint Review', 'The Calm Ledger', 'Ritual Daily', 'Restful Post', 'Balm & Breath', 'Quiet Hours Co'],
+  longAbout:
+    'The studio was designed backwards — quiet rooms first, reception desk last. Every treatment on the menu was written with the practitioners who give it, runs ten minutes longer than the industry standard, and ends without anyone rushing you out.',
+  contactLine: '6 Linden Court, garden entrance',
+  hoursLine: 'Daily 10:00–20:00 · silent hours before noon',
+  heroKickers: ['Quiet hours daily', 'Designed by practitioners', 'Your unhurried hour', 'Softness, scheduled', 'Breathe first, scroll later'],
+  taglineImagery: ['an hour that belongs to you', 'quiet rooms and warm light', 'the unclenched jaw', 'rituals small enough to keep', 'rest, taken seriously', 'a slower pulse', 'the exhale you kept postponing', 'ten unscheduled minutes'],
+  taglinePromises: ['scheduled without the guilt', 'unhurried on purpose', 'designed by people who practice it', 'calmer by the second visit', 'kind to actual schedules', 'bookable in two taps'],
+  faq: [
+    { q: 'What should I expect on a first visit?', a: 'Ten quiet minutes with tea before anything begins, and a short conversation about what your week has been doing to you. No forms on clipboards, no upselling on the table.' },
+    { q: 'How far ahead do treatments book out?', a: 'Weekday mornings are usually open within a few days; weekend slots go about two weeks out. Silent hours before noon are the quietest booking of all.' },
+    { q: 'Can I reschedule without a fee?', a: 'Self-serve up to four hours before, straight from the confirmation message. Later than that, we simply ask you to call — a human will find you a slot.' },
+    { q: 'What is actually in the products you use?', a: 'Full ingredient lists on every jar, none longer than twenty entries, no fragrance mysteries. If your skin has a history, bring it up and we patch-test first.' },
+    { q: 'Do treatments really run longer here?', a: 'Every one ends with ten unscheduled minutes, and we never double-book a room. You will not be handed your shoes while still breathing slowly.' },
+    { q: 'Is there somewhere to decompress after?', a: 'The garden room stays open an hour past your treatment, with tea and no conversation required. Phones sleep in little beds at the door.' },
+  ],
+  testimonials: [
+    { quote: 'The sleep ritual {name} built me survived a product launch and a teething baby. Ten minutes, most nights — that is the genius of it.', by: 'Spa director' },
+    { quote: 'Nobody has ever rushed me out of a room at {name}. The unscheduled ten minutes at the end is worth the whole booking.', by: 'Massage therapist' },
+    { quote: 'As a dermatologist I read ingredient lists for sport, and {name} passes. Under twenty ingredients, nothing hiding behind “fragrance.”', by: 'Dermatologist' },
+    { quote: 'I book the silent morning hours at {name} and my jaw unclenches in the hallway. The quiet is a treatment in itself.', by: 'Meditation teacher' },
+    { quote: 'The facial came with homework I could actually do — three steps, not eleven. {name} designs for real bathrooms.', by: 'Esthetician' },
+    { quote: 'They rescheduled me at 7am after a cancelled flight, no fee, no sigh. {name} treats calm as a service standard.', by: 'Spa director' },
+  ],
 };
 
 const GENERIC: TopicContent = {
@@ -1568,12 +2320,12 @@ const GENERIC: TopicContent = {
     { value: '36h', label: 'saved per member, monthly' },
   ],
   featureIdeas: [
-    { title: 'Quick to start', text: 'Be productive before your coffee cools — nothing to install, nothing to configure.' },
-    { title: 'Thoughtful defaults', text: 'Sensible settings out of the box, with room to tune everything later.' },
-    { title: 'Works everywhere', text: 'A responsive layout that feels at home on phones, tablets and widescreens.' },
-    { title: 'Private by design', text: 'Your data stays yours. No trackers, no surprise sharing, no fine print.' },
-    { title: 'Keyboard friendly', text: 'Every common action has a shortcut, so your hands never leave the keys.' },
-    { title: 'Built to last', text: 'Fast pages, honest engineering and updates that never break your flow.' },
+    { title: 'Quick to start', text: 'Be productive before your coffee cools — nothing to install, nothing to configure. First visit to first result takes under two minutes.' },
+    { title: 'Thoughtful defaults', text: 'Sensible settings out of the box, with room to tune everything later. Nine out of ten members never open the settings page.' },
+    { title: 'Works everywhere', text: 'A responsive layout that feels at home on phones, tablets and widescreens. The same account follows you from the train to the desk.' },
+    { title: 'Private by design', text: 'Your data stays yours — no trackers, no surprise sharing, no fine print. The whole privacy policy fits on a single page.' },
+    { title: 'Keyboard friendly', text: 'Every common action has a shortcut, so your hands never leave the keys. Press the question mark anywhere for the full map.' },
+    { title: 'Built to last', text: 'Fast pages, honest engineering and updates that never break your flow. The changelog goes back four years without one forced migration.' },
   ],
   habitIdeas: [
     'Morning stretch', 'Read 20 pages', 'Drink two liters of water',
@@ -1595,6 +2347,30 @@ const GENERIC: TopicContent = {
     'Grocery staples', 'Trip sketch', 'Weekly review',
   ],
   chatContacts: ['Sam', 'Noor', 'Kit', 'Ada'],
+  logoNames: ['Fieldnote Labs', 'Standard Works', 'The Daily Method', 'Cobalt Press', 'Harbor & Main', 'Studio Ledger'],
+  longAbout:
+    'This started as an internal tool that guests kept asking to take home. It is still built the same way — small releases, careful defaults and a changelog written for humans — by a team that fits around one large table.',
+  contactLine: 'Studio 12, 4 Ledger Street',
+  hoursLine: 'Replies weekdays, usually before lunch',
+  heroKickers: ['Quietly excellent', 'Small team, sharp tool', 'New this season', 'Considered by default', 'Made for the everyday'],
+  taglineImagery: ['the everyday, upgraded', 'good defaults', 'one calm workspace', 'the small hours of the week', 'tools that stay out of the way', 'a tidier day', 'fewer tabs, better mornings', 'the considered version'],
+  taglinePromises: ['working before the coffee cools', 'built with fewer, better features', 'private by design', 'quietly dependable', 'finished properly', 'considered down to the empty states'],
+  faq: [
+    { q: 'How long does shipping take?', a: 'Orders leave the studio within two working days, wrapped in paper rather than plastic. Tracking arrives by email the moment the courier scans it.' },
+    { q: 'What if it arrives and I do not love it?', a: 'Thirty days to change your mind, return label included, refund on the day it lands back. We would rather have it back than have it resented.' },
+    { q: 'Where are things actually made?', a: 'Each product page names the workshop and the town — no vague “designed in” hedging. Most of the range comes from within a day’s drive.' },
+    { q: 'Do the materials hold up?', a: 'Everything is tested in our own homes for a season before it goes on the shelf. The walnut tray on the photo desk is the original prototype, four years in.' },
+    { q: 'Can I order something as a gift?', a: 'Tick the gift box and we wrap it, hide the price and write your card by hand. Receipts go to you, never into the parcel.' },
+    { q: 'Do you restock sold-out pieces?', a: 'Small batches return when the workshop is ready, not on a fixed calendar. Join the note-me list and you will hear first, once, without a campaign.' },
+  ],
+  testimonials: [
+    { quote: 'The {name} desk tray outlasted three laptops and still looks deliberate. Quiet objects, loudly well made.', by: 'Product designer' },
+    { quote: 'Every order from {name} arrives like a small occasion — paper, twine, a card in actual handwriting. My clients always ask where it came from.', by: 'Studio owner' },
+    { quote: 'We furnished the whole studio kitchen from {name} in one order. A year of daily use and not one regret on the shelf.', by: 'Operations lead' },
+    { quote: 'I bought one candle as a test and now the whole team gets them every winter. {name} makes gifting embarrassingly easy.', by: 'Marketing director' },
+    { quote: 'The linen tote has carried groceries, laptops and one uncooperative cat. {name} understates and over-delivers.', by: 'Founder, Fieldnote Labs' },
+    { quote: 'Their restock notes are one email, once — no countdown timers, no manufactured panic. {name} sells like it respects you.', by: 'Product designer' },
+  ],
 };
 
 const CONTENT: Record<TopicDomain, TopicContent> = {
@@ -1610,6 +2386,124 @@ const CONTENT: Record<TopicDomain, TopicContent> = {
   generic: GENERIC,
 };
 
+/* ------------------------------------------------------------------ */
+/* Flavor registry + detection                                         */
+/* ------------------------------------------------------------------ */
+
+/** Flavor order per split domain — also the tie-break priority. */
+export const DOMAIN_FLAVORS: Partial<Record<TopicDomain, readonly TopicFlavor[]>> = {
+  food: ['coffee', 'bakery', 'restaurant'],
+  music: ['podcast', 'band', 'studio'],
+  fitness: ['gym', 'yoga', 'run'],
+};
+
+const VOICES: Partial<Record<TopicDomain, Readonly<Partial<Record<TopicFlavor, TopicVoice>>>>> = {
+  food: { coffee: FOOD_COFFEE, bakery: FOOD_BAKERY, restaurant: FOOD_RESTAURANT },
+  music: { podcast: MUSIC_PODCAST, band: MUSIC_BAND, studio: MUSIC_STUDIO },
+  fitness: { gym: FITNESS_GYM, yoga: FITNESS_YOGA, run: FITNESS_RUN },
+};
+
+function voiceOf(topic: TopicDomain, flavor: TopicFlavor): TopicVoice | undefined {
+  if (flavor === 'general') return undefined;
+  return VOICES[topic]?.[flavor];
+}
+
+interface FlavorMatcher {
+  flavor: TopicFlavor;
+  pattern: RegExp;
+}
+
+/**
+ * Keyword patterns per flavor. Every flavored tagline stem contains at
+ * least one of its own flavor's keywords and none of its siblings', which
+ * is what lets `flavorFor` recover the flavor from the spec alone.
+ */
+const FLAVOR_MATCHERS: Partial<Record<TopicDomain, readonly FlavorMatcher[]>> = {
+  food: [
+    // NB: "café" ends in a non-word char, so a trailing \b never matches
+    // there — use (?!\w) instead so accented spellings are recovered too.
+    { flavor: 'coffee', pattern: /\bcoffees?\b|\broast\w*\b|\bespressos?\b|\bcaf(?:e|é)s?(?!\w)|\bbrews?\b|\bbrewing\b|\bbarista\w*\b|\bcrema\b|\bpour[-\s]?overs?\b|\blattes?\b|\bbeans?\b|\bcortados?\b|\bgrinders?\b|\bcupping\b|\bdrum\b/ },
+    { flavor: 'bakery', pattern: /\bbreads?\b|\bbaker(?:y|ies)\b|\bbake\w*\b|\bbaking\b|\bpastr(?:y|ies)\b|\bcrusts?\b|\bcrumbs?\b|\bsourdough\b|\bloaf\b|\bloaves\b|\bdough\b|\bcroissants?\b|\bovens?\b|\blaminat\w+\b|\bproved?\b|\bflour\b/ },
+    { flavor: 'restaurant', pattern: /\brestaurants?\b|\bbistros?\b|\bdiners?\b|\bmenus?\b|\btables?\b|\bkitchens?\b|\bchef\w*\b|\bplates?\b|\bdinners?\b|\bbrunch\b|\bsuppers?\b|\bcourses?\b|\btasting\b|\bcook\w*\b|\beater(?:y|ies)\b/ },
+  ],
+  music: [
+    { flavor: 'podcast', pattern: /\bpodcasts?\b|\bepisodes?\b|\binterviews?\b|\blisten\w*\b|\bhosts?\b|\bmics?\b|\bcommutes?\b|\btranscri\w+\b/ },
+    { flavor: 'band', pattern: /\bbands?\b|\btour\w*\b|\bgigs?\b|\balbums?\b|\bvinyl\b|\bsetlists?\b|\bencores?\b|\briffs?\b|\bamps?\b|\bstages?\b|\bvenues?\b|\bpress(?:ed|ings?)\b|\broad-tested\b/ },
+    { flavor: 'studio', pattern: /\bstudios?\b|\brecordings?\b|\bmix(?:es|ing)\b|\bmastering\b|\bproducers?\b|\bsessions?\b|\btracking\b|\bconsoles?\b|\bbooths?\b|\bstems\b|\btaped?\b/ },
+  ],
+  fitness: [
+    { flavor: 'yoga', pattern: /\byoga\b|\bpilates\b|\bflows?\b|\bmats?\b|\basanas?\b|\bvinyasas?\b|\bsavasana\b|\bbreath\w*\b|\bstretch\w*\b|\bcandlelit\b|\bclass(?:es)?\b/ },
+    { flavor: 'run', pattern: /\brun(?:s|ning|ner|ners)?\b|\bmarathons?\b|\b5k\b|\b10k\b|\btrails?\b|\bmiles?\b|\bpaces?\b|\bpaced\b|\bstrides?\b|\btempo\b|\bintervals?\b|\bsplits?\b|\bstart line\b|\bcouch\b/ },
+    { flavor: 'gym', pattern: /\bgyms?\b|\bstrength\b|\blift\w*\b|\bweights?\b|\bcrossfit\b|\bbarbells?\b|\bkettlebells?\b|\bsquats?\b|\bdeadlifts?\b|\breps?\b|\bracks?\b|\bcoach\w*\b|\bchalk\b|\bspotted\b|\bincrements\b/ },
+  ],
+};
+
+/**
+ * Scores `primary` (weight 2) and `secondary` (weight 1) against a domain's
+ * flavor keywords. Null when nothing matches or the domain has no flavors.
+ */
+export function detectFlavor(
+  topic: TopicDomain,
+  primary: string,
+  secondary = '',
+): TopicFlavor | null {
+  const matchers = FLAVOR_MATCHERS[topic];
+  if (!matchers) return null;
+  const p = primary.toLowerCase();
+  const s = secondary.toLowerCase();
+  let best: TopicFlavor | null = null;
+  let bestScore = 0;
+  for (const matcher of matchers) {
+    let score = 0;
+    if (matcher.pattern.test(p)) score += 2;
+    if (matcher.pattern.test(s)) score += 1;
+    if (score > bestScore) {
+      best = matcher.flavor;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Deterministic flavor for a split domain when keywords give nothing:
+ * a seeded pick keyed only on (seed, topic), so parse time and every later
+ * regeneration land on the same voice.
+ */
+export function fallbackFlavor(topic: TopicDomain, seed: string): TopicFlavor {
+  const flavors = DOMAIN_FLAVORS[topic];
+  if (!flavors || flavors.length === 0) return 'general';
+  return createRng(`${seed}:flavor:${topic}`).pick(flavors);
+}
+
+/** Keyword detection first (primary outweighs secondary), seeded fallback second. */
+export function resolveFlavor(
+  topic: TopicDomain,
+  primary: string,
+  secondary: string,
+  seed: string,
+): TopicFlavor {
+  return detectFlavor(topic, primary, secondary) ?? fallbackFlavor(topic, seed);
+}
+
+/**
+ * The project's sub-topic voice, derived from spec fields alone —
+ * `generateFiles(spec)` is called repeatedly for the same spec during
+ * edits, so this must be (and is) recoverable from name + tagline + seed
+ * identically every time. Taglines composed at parse time always carry a
+ * keyword of their own flavor, which is what the detector finds again here.
+ */
+export function flavorFor(
+  spec: Pick<ProjectSpec, 'topic' | 'name' | 'tagline' | 'seed'>,
+): TopicFlavor {
+  return resolveFlavor(spec.topic, spec.tagline, spec.name, spec.seed);
+}
+
+/** Brandable name nouns for a flavor; empty when the flavor has none. */
+export function flavorNameNouns(topic: TopicDomain, flavor: TopicFlavor): readonly string[] {
+  return voiceOf(topic, flavor)?.nameNouns ?? [];
+}
+
 /** Rotates a pool by a seeded offset so different seeds surface different items first. */
 function rotated<T>(pool: readonly T[], rng: Rng): readonly T[] {
   if (pool.length === 0) return pool;
@@ -1620,25 +2514,115 @@ function rotated<T>(pool: readonly T[], rng: Rng): readonly T[] {
 /**
  * Returns the content pools for a domain, each rotated by a seeded offset —
  * membership is stable, ordering varies between seeds.
+ *
+ * With a concrete `flavor`, pools mix that voice's entries with the
+ * domain's voice-neutral ('general') entries — never a sibling voice's, so
+ * one project speaks with one voice. Without a flavor, pools merge
+ * everything (legacy callers keep their full variety).
  */
-export function contentFor(topic: TopicDomain, rng: Rng): TopicContent {
+export function contentFor(
+  topic: TopicDomain,
+  rng: Rng,
+  flavor: TopicFlavor = 'general',
+): TopicContent {
   const base = CONTENT[topic];
+  const domainVoices = VOICES[topic];
+  const order = DOMAIN_FLAVORS[topic] ?? [];
+  const voice = voiceOf(topic, flavor);
+
+  const pool = <T>(
+    pick: (v: TopicVoice) => readonly T[] | undefined,
+    basePool: readonly T[],
+  ): readonly T[] => {
+    if (voice) return [...(pick(voice) ?? []), ...basePool];
+    if (!domainVoices) return basePool;
+    const extras: T[] = [];
+    for (const f of order) {
+      const v = domainVoices[f];
+      if (v) extras.push(...(pick(v) ?? []));
+    }
+    return [...basePool, ...extras];
+  };
+
   return {
     label: base.label,
     glyph: base.glyph,
-    products: rotated(base.products, rng),
-    posts: rotated(base.posts, rng),
+    products: rotated(pool((v) => v.products, base.products), rng),
+    posts: rotated(pool((v) => v.posts, base.posts), rng),
     recipes: rotated(base.recipes, rng), // each entry keeps its own items/steps
-    galleryProjects: rotated(base.galleryProjects, rng),
-    personas: rotated(base.personas, rng),
-    stats: rotated(base.stats, rng),
-    featureIdeas: rotated(base.featureIdeas, rng),
+    galleryProjects: rotated(pool((v) => v.galleryProjects, base.galleryProjects), rng),
+    personas: rotated(pool((v) => v.personas, base.personas), rng),
+    stats: rotated(pool((v) => v.stats, base.stats), rng),
+    featureIdeas: rotated(pool((v) => v.featureIdeas, base.featureIdeas), rng),
     habitIdeas: rotated(base.habitIdeas, rng),
     todoIdeas: rotated(base.todoIdeas, rng),
     kanbanCards: rotated(base.kanbanCards, rng),
     noteTitles: rotated(base.noteTitles, rng),
     chatContacts: rotated(base.chatContacts, rng),
+    logoNames: rotated(pool((v) => v.logoNames, base.logoNames), rng),
+    longAbout: voice?.longAbout ?? base.longAbout,
+    contactLine: voice?.contactLine ?? base.contactLine,
+    hoursLine: voice?.hoursLine ?? base.hoursLine,
+    heroKickers: rotated(pool((v) => v.heroKickers, base.heroKickers), rng),
+    // Tagline pools are voice-exclusive in flavored views: every stem must
+    // carry a recoverable flavor keyword (see flavorFor).
+    taglineImagery: rotated(
+      voice ? voice.taglineImagery : pool((v) => v.taglineImagery, base.taglineImagery),
+      rng,
+    ),
+    taglinePromises: rotated(
+      voice ? voice.taglinePromises : pool((v) => v.taglinePromises, base.taglinePromises),
+      rng,
+    ),
+    faq: rotated(pool((v) => v.faq, base.faq), rng),
+    testimonials: rotated(pool((v) => v.testimonials, base.testimonials), rng),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Universal FAQ entries                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Domain-agnostic Q&As; the FAQ renderer mixes AT MOST ONE of these in
+ * beside the domain pool. Deliberately free of SaaS phrasing.
+ */
+export const UNIVERSAL_FAQ: readonly TopicFaq[] = [
+  { q: 'Do you offer gift cards?', a: 'Yes — digital ones by email in any amount, and printed ones over the counter. They never expire, because expiring gifts are rude.' },
+  { q: 'How do I reach a real person?', a: 'Email us and a human answers, usually before lunch. No ticket numbers, no phone trees, no chatbot pretending otherwise.' },
+  { q: 'Do you offer discounts?', a: 'Students, teachers and non-profits get a standing discount — write from your institution address and we will sort it out.' },
+];
+
+/* ------------------------------------------------------------------ */
+/* Tagline grammar                                                     */
+/* ------------------------------------------------------------------ */
+
+function capFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Composes a tagline from imagery + promise fragment pools — the voice's
+ * own pools for flavored domains, the domain pools otherwise. The raw
+ * prompt is never echoed into a tagline, and every flavored stem carries a
+ * keyword `flavorFor` can recover at regeneration time. Four structural
+ * patterns × large pools keep sibling seeds from sharing an opening stem.
+ */
+export function composeTagline(
+  topic: TopicDomain,
+  rng: Rng,
+  flavor: TopicFlavor = 'general',
+): string {
+  const voice = voiceOf(topic, flavor);
+  const base = CONTENT[topic];
+  const imagery = rng.pick(voice?.taglineImagery ?? base.taglineImagery);
+  const promise = rng.pick(voice?.taglinePromises ?? base.taglinePromises);
+  return rng.pick([
+    `${capFirst(imagery)}, ${promise}.`,
+    `${capFirst(imagery)} — ${promise}.`,
+    `${capFirst(promise)}: ${imagery}.`,
+    `${capFirst(imagery)}. ${capFirst(promise)}.`,
+  ]);
 }
 
 /* ------------------------------------------------------------------ */
