@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Warm stone-tinted neutral scale, original values. */
+    --background: 60 9% 98%;
+    --foreground: 24 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 10% 10%;
+    --primary: 24 10% 10%;
+    --primary-foreground: 60 9% 98%;
+    --secondary: 60 5% 94%;
+    --secondary-foreground: 24 10% 10%;
+    --muted: 60 5% 94%;
+    --muted-foreground: 25 5% 45%;
+    --accent: 60 5% 93%;
+    --accent-foreground: 24 10% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 20 6% 90%;
+    --input: 20 6% 86%;
+    --ring: 24 10% 10%;
+
+    /* Brand gradient stops (coral → orchid → violet). */
+    --brand-coral: 4 92% 69%;
+    --brand-orchid: 288 91% 73%;
+    --brand-violet: 252 91% 66%;
+  }
+
+  .dark {
+    --background: 20 14% 4%;
+    --foreground: 60 9% 96%;
+    --card: 24 10% 8%;
+    --card-foreground: 60 9% 96%;
+    --popover: 24 10% 9%;
+    --popover-foreground: 60 9% 96%;
+    --primary: 60 9% 96%;
+    --primary-foreground: 24 10% 8%;
+    --secondary: 24 8% 13%;
+    --secondary-foreground: 60 9% 96%;
+    --muted: 24 8% 13%;
+    --muted-foreground: 24 5% 62%;
+    --accent: 24 8% 15%;
+    --accent-foreground: 60 9% 96%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 24 8% 15%;
+    --input: 24 8% 19%;
+    --ring: 60 9% 80%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  ::selection {
+    background: hsl(var(--brand-orchid) / 0.3);
+  }
+
+  /* Consistent, visible focus for keyboard users only. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-coral via-brand-orchid to-brand-violet bg-clip-text text-transparent;
+  }
+
+  .bg-brand-gradient {
+    @apply bg-gradient-to-r from-brand-coral via-brand-orchid to-brand-violet;
+  }
+
+  /* Shimmer used by skeletons and the "Thinking…" state. */
+  .shimmer-text {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted-foreground)) 0%,
+      hsl(var(--foreground)) 50%,
+      hsl(var(--muted-foreground)) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Thin, unobtrusive scrollbars for panels. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
