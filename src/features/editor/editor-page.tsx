@@ -3,8 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { MessageSquareText, AppWindow, FolderX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useProjects } from '@/stores/projects';
-import { engine } from '@/engine';
 import type { ElementSelection } from '@/engine/types';
+import { openCompiledInNewTab } from '@/features/editor/open-external';
 import { EditorTopBar } from '@/features/editor/editor-top-bar';
 import { ChatPanel } from '@/features/editor/chat-panel';
 import {
@@ -180,10 +180,7 @@ export default function EditorPage() {
               onToggleInspector={() => setInspectorOn((v) => !v)}
               onRefresh={() => setRefreshKey((k) => k + 1)}
               onOpenExternal={() => {
-                if (!files) return;
-                const html = engine.compilePreview(files);
-                const blob = new Blob([html], { type: 'text/html' });
-                window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+                if (files) openCompiledInNewTab(files);
               }}
               onToggleHistory={() => setHistoryOpen((v) => !v)}
               historyOpen={historyOpen}

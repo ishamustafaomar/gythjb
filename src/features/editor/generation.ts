@@ -5,6 +5,7 @@ import type {
   FileChange,
 } from '@/engine/types';
 import { useProjects, type ChatMessage } from '@/stores/projects';
+import { toast } from '@/components/ui/toast';
 import { uid } from '@/lib/utils';
 
 /**
@@ -58,11 +59,16 @@ async function streamAssistantTurn(
   const controller = new AbortController();
   activeGenerations.set(projectId, controller);
   const { signal } = controller;
-  const store = useProjects.getState();
   const patch = (
     p: Partial<ChatMessage>,
     options?: { persist?: boolean }
   ) => useProjects.getState().patchMessage(projectId, messageId, p, options);
+
+  // Set once the version is committed; drives whether an abort finalizes or
+  // rolls back, and whether the turn can safely touch a deleted project.
+  let committed:
+    | Pick<ChatMessage, 'versionId' | 'versionNumber' | 'changes' | 'planItems'>
+    | null = null;
 
   try {
     // Thinking pause before any output.
@@ -95,7 +101,13 @@ async function streamAssistantTurn(
       await sleep(340, signal);
     }
 
-    // Commit the version, then stream the outro.
+    // Commit the version, then stream the outro. Committing is the point of
+    // no return: the files are now the project's head, so a Stop pressed
+    // during the outro must finalize the turn, not roll it back.
+    // If the project was deleted while we were streaming, stop here rather
+    // than resurrecting its storage keys with an orphaned version.
+    if (!useProjects.getState().getProject(projectId)) return;
+
     const versions = useProjects.getState().versions[projectId] ?? [];
     const versionNumber = versions.length + 1;
     const version = {
@@ -107,6 +119,12 @@ async function streamAssistantTurn(
       files: plan.files,
     };
     useProjects.getState().addVersion(projectId, version);
+    committed = {
+      versionId: version.id,
+      versionNumber,
+      changes: plan.changes,
+      planItems: plan.planItems,
+    };
 
     let outro = '';
     for (const chunk of chunksOf(plan.outro)) {
@@ -115,19 +133,18 @@ async function streamAssistantTurn(
       await sleep(18, signal);
     }
 
-    patch({
-      outro,
-      status: 'complete',
-      versionId: version.id,
-      versionNumber,
-      changes: plan.changes,
-      planItems: plan.planItems,
-    });
+    patch({ outro, status: 'complete', ...committed });
     callbacks?.onDone?.();
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      // Keep whatever prose already streamed; no version is committed.
-      patch({ status: 'stopped' });
+      if (committed) {
+        // Version already applied — finalize as complete, keeping whatever
+        // outro prose had streamed so far.
+        patch({ status: 'complete', ...committed });
+      } else {
+        // Stopped before any version was committed — nothing was applied.
+        patch({ status: 'stopped' });
+      }
     } else {
       patch({
         status: 'error',
@@ -136,11 +153,13 @@ async function streamAssistantTurn(
     }
   } finally {
     activeGenerations.delete(projectId);
-    // Ensure the final streamed state is persisted.
-    const latest = useProjects
-      .getState()
-      .messages[projectId]?.find((m) => m.id === messageId);
-    if (latest) store.patchMessage(projectId, messageId, {});
+    // Persist the final streamed state — but only if the project still
+    // exists, so a mid-stream delete isn't undone by a resurrecting write.
+    const state = useProjects.getState();
+    if (state.getProject(projectId)) {
+      const latest = state.messages[projectId]?.find((m) => m.id === messageId);
+      if (latest) state.patchMessage(projectId, messageId, {});
+    }
   }
 }
 
@@ -243,6 +262,12 @@ async function streamClarify(
 
 /** Restore an older version by copying it forward as a new head version. */
 export function restoreVersion(projectId: string, versionId: string): void {
+  // A restore while a generation is mid-flight would race two commits onto
+  // the same head — block it until the current turn settles.
+  if (isGenerating(projectId)) {
+    toast.info('Still generating', 'Wait for the current change to finish before restoring.');
+    return;
+  }
   const store = useProjects.getState();
   const versions = store.versions[projectId] ?? [];
   const target = versions.find((v) => v.id === versionId);

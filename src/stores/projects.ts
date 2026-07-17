@@ -180,7 +180,12 @@ export const useProjects = create<ProjectsStore>((set, get) => ({
     };
     const projects = [copy, ...get().projects];
     persistProjects(projects);
-    const copiedMessages = messages[id] ?? [];
+    // If the source is duplicated mid-generation, its live cache holds a
+    // still-"streaming" message with no generation behind it in the copy —
+    // normalize it so the copy never shows a frozen live state.
+    const copiedMessages = (messages[id] ?? []).map((m) =>
+      m.status === 'streaming' ? { ...m, status: 'stopped' as const } : m
+    );
     const copiedVersions = versions[id] ?? [];
     writeJSON(messagesKey(copy.id), copiedMessages);
     writeJSON(versionsKey(copy.id), copiedVersions);

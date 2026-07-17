@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
-import { engine } from '@/engine';
+import { openCompiledInNewTab } from '@/features/editor/open-external';
 import { useProjects, type Project } from '@/stores/projects';
 import { uid, cn } from '@/lib/utils';
 
@@ -77,9 +77,7 @@ export function PublishDialog({
   const openLive = () => {
     const version = getHeadVersion(project.id);
     if (!version) return;
-    const html = engine.compilePreview(version.files);
-    const blob = new Blob([html], { type: 'text/html' });
-    window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    openCompiledInNewTab(version.files);
   };
 
   const unpublish = () => {
