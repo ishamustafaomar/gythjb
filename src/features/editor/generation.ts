@@ -6,6 +6,8 @@ import type {
 } from '@/engine/types';
 import { useProjects, type ChatMessage } from '@/stores/projects';
 import { toast } from '@/components/ui/toast';
+import { resolveModel, type RoutedModel } from '@/lib/models';
+import { useModel } from '@/stores/model';
 import { uid } from '@/lib/utils';
 
 /**
@@ -168,6 +170,11 @@ export function startProjectFromPrompt(prompt: string): string {
   const projectId = uid('proj');
   const plan = engine.createProject({ prompt, seed: projectId });
   const store = useProjects.getState();
+  const model: RoutedModel = resolveModel(useModel.getState().preference, {
+    text: prompt,
+    isFirstGeneration: true,
+    template: plan.spec.template,
+  });
 
   store.insertProject({ id: projectId, name: plan.spec.name, spec: plan.spec });
   store.appendMessage(projectId, {
@@ -185,6 +192,7 @@ export function startProjectFromPrompt(prompt: string): string {
     text: '',
     ts: Date.now(),
     status: 'streaming',
+    model,
   });
 
   void streamAssistantTurn(projectId, assistantId, plan, true);
@@ -218,6 +226,11 @@ export function sendProjectMessage(
     seed: turnSeed,
     selection: options?.selection,
   });
+  const model: RoutedModel = resolveModel(useModel.getState().preference, {
+    text,
+    isFirstGeneration: false,
+    template: project.spec.template,
+  });
 
   const assistantId = uid('msg');
   store.appendMessage(projectId, {
@@ -226,6 +239,7 @@ export function sendProjectMessage(
     text: '',
     ts: Date.now(),
     status: 'streaming',
+    model,
   });
 
   if (reply.kind === 'clarify') {

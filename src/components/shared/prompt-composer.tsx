@@ -2,6 +2,7 @@ import * as React from 'react';
 import { ArrowUp, ImagePlus, X, Square } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { WithTooltip } from '@/components/ui/tooltip';
+import { ModelPicker } from '@/components/shared/model-picker';
 import { cn } from '@/lib/utils';
 
 export interface ComposerSubmission {
@@ -147,6 +148,7 @@ export function PromptComposer({
               e.target.value = '';
             }}
           />
+          <ModelPicker disabled={disabled} />
         </div>
 
         {busy ? (

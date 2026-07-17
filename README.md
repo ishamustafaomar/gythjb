@@ -44,6 +44,10 @@ State persists in `localStorage` behind a versioned, typed storage layer.
   mobile widths; an element inspector (click anything in the preview to
   scope your next edit); a code view with file tree and syntax
   highlighting; version history with restore; a staged publish flow.
+- **Model picker** — choose a model per task or leave it on Auto, which
+  analyzes each prompt (UI tweak vs. debugging vs. large build) and routes
+  it accordingly; every assistant turn shows which model handled it and
+  why. Routing is real; generation stays on the local engine.
 - **⌘K** command palette, keyboard shortcuts throughout, full dark mode,
   reduced-motion support, WCAG-minded semantics and focus management.
 
