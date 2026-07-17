@@ -4,6 +4,7 @@
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -13,14 +14,6 @@ import {
   toJsLiteral,
   type TemplateOutput,
 } from '../shared';
-
-const STARTERS: ReadonlyArray<{ from: 'in' | 'out'; text: string }> = [
-  { from: 'in', text: 'Morning! Did you see the new mockups?' },
-  { from: 'out', text: 'Just opened them — the second option is the one.' },
-  { from: 'in', text: 'Agreed. Want to walk through the edge cases at noon?' },
-  { from: 'out', text: 'Works for me. I will bring the awkward questions.' },
-  { from: 'in', text: 'Perfect. Bring snacks too and it is a meeting.' },
-];
 
 const REPLY_POOL: readonly string[] = [
   'Good point — say more?',
@@ -35,10 +28,20 @@ const REPLY_POOL: readonly string[] = [
 
 export function renderChat(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:chat`);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const taskA = content.kanbanCards[0] ?? 'the plan';
+  const taskB = content.todoIdeas[0] ?? 'the next step';
+  const starterPool: ReadonlyArray<{ from: 'in' | 'out'; text: string }> = [
+    { from: 'in', text: `Morning! Any progress on “${taskA.toLowerCase()}”?` },
+    { from: 'out', text: 'Just wrapped the first pass — want to take a look?' },
+    { from: 'in', text: 'Looks great so far. Can we walk through it at noon?' },
+    { from: 'out', text: `Works for me. Afterwards I still need to ${taskB.toLowerCase()}.` },
+    { from: 'in', text: 'Deal. Bring snacks and it is officially a meeting.' },
+  ];
   const starterCount = rng.int(3, 5);
-  const starters = STARTERS.slice(0, starterCount);
+  const starters = starterPool.slice(0, starterCount);
   const replyOffset = rng.int(0, REPLY_POOL.length - 1);
-  const contact = rng.pick(['Sam', 'Noor', 'Kit', 'Ada', 'Remy', 'Jules']);
+  const contact = rng.pick(content.chatContacts);
 
   const messages = starters
     .map(
@@ -86,13 +89,13 @@ ${baseCss(spec)}
 }
 .chat-head h1 { font-size: 1.05rem; }
 .chat-avatar {
-  width: 2.4rem; height: 2.4rem; border-radius: 50%; flex: none;
+  width: 2.4rem; height: 2.4rem; border-radius: var(--radius-round); flex: none;
   display: grid; place-items: center; font-weight: 700;
   background: linear-gradient(135deg, var(--primary), var(--accent));
   color: var(--primary-contrast);
 }
 .chat-status { color: var(--muted); font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem; }
-.status-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #3BA55D; display: inline-block; }
+.status-dot { width: 0.5rem; height: 0.5rem; border-radius: var(--radius-round); background: #3BA55D; display: inline-block; }
 #thread {
   list-style: none; margin: 0; padding: 1.1rem; flex: 1; overflow-y: auto;
   display: flex; flex-direction: column; gap: 0.5rem;
@@ -103,7 +106,7 @@ ${baseCss(spec)}
 .bubble-out { align-self: flex-end; background: var(--primary); color: var(--primary-contrast); }
 .typing { display: inline-flex; gap: 0.3rem; padding-block: 0.8rem; }
 .typing .dot {
-  width: 0.42rem; height: 0.42rem; border-radius: 50%; background: var(--muted);
+  width: 0.42rem; height: 0.42rem; border-radius: var(--radius-round); background: var(--muted);
   animation: typing-bounce 1s ease-in-out infinite;
 }
 .typing .dot:nth-child(2) { animation-delay: 0.15s; }

@@ -1,9 +1,12 @@
 /**
  * Habit tracker template — weekly check-cell grid per habit, streak and
  * weekly-total counters, add/remove habits, localStorage persistence.
+ * Rows use a stacked name/days layout so streak labels never clip on
+ * narrow screens.
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -15,24 +18,13 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-const HABIT_POOL: readonly string[] = [
-  'Morning stretch',
-  'Read 20 pages',
-  'Drink two liters of water',
-  'Walk outside',
-  'Practice an instrument',
-  'Write three journal lines',
-  'Lights out by eleven',
-  'Tidy one surface',
-];
-
 export function renderHabit(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:habit`);
-  const habitCount = rng.int(3, 4);
-  const start = rng.int(0, HABIT_POOL.length - 1);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const habitCount = Math.min(rng.int(3, 4), content.habitIdeas.length);
   const seedHabits: Array<{ id: string; name: string; week: boolean[] }> = [];
   for (let i = 0; i < habitCount; i++) {
-    const name = HABIT_POOL[(start + i) % HABIT_POOL.length] ?? 'Take a breather';
+    const name = content.habitIdeas[i] ?? 'Take a breather';
     const week: boolean[] = [];
     for (let day = 0; day < 7; day++) {
       week.push(day < 4 ? rng.chance(0.6) : false);
@@ -54,10 +46,8 @@ export function renderHabit(spec: ProjectSpec): TemplateOutput {
         <button class="btn btn-primary" type="submit">Track it</button>
       </form>
       <div class="week-labels" aria-hidden="true">
-        <span class="week-spacer"></span>
         <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span>
         <span>Fri</span><span>Sat</span><span>Sun</span>
-        <span class="week-spacer-end"></span>
       </div>
       <ul id="habit-list"></ul>
       <p id="habit-empty" hidden>No habits yet — add the first one above.</p>
@@ -73,36 +63,34 @@ ${baseCss(spec)}
 .habit-card { max-width: 44rem; margin-inline: auto; padding: clamp(1.25rem, 4vw, 2rem); }
 .habit-head { margin-bottom: 1.5rem; }
 .app-tagline { color: var(--muted); margin-top: 0.25rem; }
-#habit-form { display: flex; gap: 0.6rem; margin-bottom: 1.5rem; }
-#habit-form input { flex: 1; }
-.week-labels, .habit-row {
+#habit-form { display: flex; gap: 0.6rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+#habit-form input { flex: 1; min-width: 12rem; }
+.week-labels, .habit-days {
   display: grid;
-  grid-template-columns: minmax(7rem, 1fr) repeat(7, 2rem) minmax(4.5rem, auto);
-  gap: 0.35rem; align-items: center;
+  grid-template-columns: repeat(7, minmax(1.75rem, 2.4rem));
+  gap: 0.35rem;
+  justify-content: start;
 }
 .week-labels { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
-.week-labels span:not(.week-spacer):not(.week-spacer-end) { text-align: center; }
-#habit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
-.habit-row { padding: 0.45rem 0; border-bottom: 1px solid var(--border); }
-.habit-name { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.week-labels span { text-align: center; }
+#habit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
+.habit-row { display: grid; gap: 0.45rem; padding-block: 0.55rem; border-bottom: 1px solid var(--border); }
+.habit-top { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; min-width: 0; }
+.habit-name { display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1 1 8rem; }
 .habit-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .habit-delete { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 0.25rem; }
 .habit-delete:hover { color: #D64550; }
 .day-cell {
-  width: 1.7rem; height: 1.7rem; margin-inline: auto; cursor: pointer;
+  width: 100%; max-width: 2.4rem; aspect-ratio: 1; cursor: pointer;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface); padding: 0;
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
 .day-cell:hover { border-color: var(--primary); transform: scale(1.08); }
 .day-cell.is-checked { background: var(--primary); border-color: var(--primary); }
-.habit-streak { text-align: right; font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+.habit-streak { font-size: 0.82rem; color: var(--muted); }
 .habit-streak strong { color: var(--primary); }
-#habit-empty { color: var(--muted); text-align: center; padding-block: 1.5rem; }
-@media (max-width: 560px) {
-  .week-labels, .habit-row { grid-template-columns: minmax(5rem, 1fr) repeat(7, 1.6rem) auto; }
-  .day-cell { width: 1.4rem; height: 1.4rem; }
-}`;
+#habit-empty { color: var(--muted); text-align: center; padding-block: 1.5rem; }`;
 
   const js = `(function () {
   'use strict';
@@ -154,6 +142,9 @@ ${baseCss(spec)}
       var row = document.createElement('li');
       row.className = 'habit-row';
 
+      var top = document.createElement('div');
+      top.className = 'habit-top';
+
       var name = document.createElement('span');
       name.className = 'habit-name';
       var label = document.createElement('span');
@@ -170,8 +161,17 @@ ${baseCss(spec)}
       });
       name.appendChild(remove);
       name.appendChild(label);
-      row.appendChild(name);
+      top.appendChild(name);
 
+      var doneCount = habit.week.filter(Boolean).length;
+      var streak = document.createElement('span');
+      streak.className = 'habit-streak';
+      streak.innerHTML = '<strong>' + bestRun(habit.week) + '</strong> streak \\u00b7 ' + doneCount + '/7';
+      top.appendChild(streak);
+      row.appendChild(top);
+
+      var days = document.createElement('div');
+      days.className = 'habit-days';
       habit.week.forEach(function (checked, dayIndex) {
         var cell = document.createElement('button');
         cell.type = 'button';
@@ -183,14 +183,9 @@ ${baseCss(spec)}
           save();
           render();
         });
-        row.appendChild(cell);
+        days.appendChild(cell);
       });
-
-      var doneCount = habit.week.filter(Boolean).length;
-      var streak = document.createElement('span');
-      streak.className = 'habit-streak';
-      streak.innerHTML = '<strong>' + bestRun(habit.week) + '</strong> streak \\u00b7 ' + doneCount + '/7';
-      row.appendChild(streak);
+      row.appendChild(days);
 
       list.appendChild(row);
     });

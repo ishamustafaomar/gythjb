@@ -4,6 +4,7 @@
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -15,17 +16,6 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-const CARD_POOL: readonly string[] = [
-  'Draft the onboarding email',
-  'Fix header overlap on mobile',
-  'Collect beta feedback',
-  'Write the changelog entry',
-  'Design the empty states',
-  'Refactor the settings panel',
-  'Plan the next sprint',
-  'Update the pricing copy',
-];
-
 const COLUMN_SETS: ReadonlyArray<readonly [string, string, string]> = [
   ['Backlog', 'In progress', 'Shipped'],
   ['To do', 'Doing', 'Done'],
@@ -34,10 +24,10 @@ const COLUMN_SETS: ReadonlyArray<readonly [string, string, string]> = [
 
 export function renderKanban(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:kanban`);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
   const columnNames = rng.pick(COLUMN_SETS);
-  const start = rng.int(0, CARD_POOL.length - 1);
   const pick = (offset: number): string =>
-    CARD_POOL[(start + offset) % CARD_POOL.length] ?? 'Untitled card';
+    content.kanbanCards[offset % content.kanbanCards.length] ?? 'Untitled card';
   const seedColumns = [
     { id: 'col-1', title: columnNames[0], cards: [pick(0), pick(1), pick(2)] },
     { id: 'col-2', title: columnNames[1], cards: [pick(3), pick(4)] },

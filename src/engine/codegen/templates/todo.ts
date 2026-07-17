@@ -4,6 +4,7 @@
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -15,17 +16,6 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-const TASK_POOL: readonly string[] = [
-  "Sketch tomorrow's plan",
-  'Clear the inbox to zero',
-  'Book the dentist appointment',
-  'Stretch for ten minutes',
-  "Prep Monday's presentation",
-  'Refill the coffee jar',
-  'Return the library books',
-  'Update the budget sheet',
-];
-
 const EMPTY_MESSAGES: readonly string[] = [
   'Nothing here — enjoy the quiet or add a task above.',
   'All clear. Add something when inspiration strikes.',
@@ -34,11 +24,11 @@ const EMPTY_MESSAGES: readonly string[] = [
 
 export function renderTodo(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:todo`);
-  const taskCount = rng.int(3, 5);
-  const start = rng.int(0, TASK_POOL.length - 1);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const taskCount = Math.min(rng.int(3, 5), content.todoIdeas.length);
   const seedTasks: Array<{ id: string; title: string; done: boolean }> = [];
   for (let i = 0; i < taskCount; i++) {
-    const title = TASK_POOL[(start + i) % TASK_POOL.length] ?? 'Take a short walk';
+    const title = content.todoIdeas[i] ?? 'Take a short walk';
     seedTasks.push({ id: `seed-${i + 1}`, title, done: i === taskCount - 1 });
   }
   const emptyMessage = rng.pick(EMPTY_MESSAGES);

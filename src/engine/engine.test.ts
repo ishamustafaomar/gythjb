@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { engine, templateLabel } from './index';
+import { createRng } from '@/lib/seeded';
+import { engine, normalizeSpec, templateLabel, type StoredProjectSpec } from './index';
 import { parsePrompt } from './parse';
 import { applyEdits, parseEdit } from './edits';
 import { generateFiles } from './codegen';
+import { contentFor, detectTopic } from './codegen/content';
 import { diffFileSystems } from './diff';
-import type { ProjectSpec, TemplateId, VirtualFileSystem } from './types';
+import type {
+  ProjectSpec,
+  StyleArchetype,
+  TemplateId,
+  TopicDomain,
+  VirtualFileSystem,
+} from './types';
 
 const SEED = 'test-seed';
 
@@ -60,6 +68,25 @@ describe('parsePrompt — template detection', () => {
 
   it('falls back to landing for vague prompts', () => {
     expect(specFromPrompt('something nice for me please').template).toBe('landing');
+  });
+});
+
+describe('parsePrompt — explicit page types beat topic nouns', () => {
+  // An explicit structural phrase ("landing page", "pricing page", "website
+  // for") names what to build; commerce nouns like "shop" that merely name
+  // the page's subject must not steal the routing.
+  const ROUTES: ReadonlyArray<[string, TemplateId, TopicDomain]> = [
+    ['a landing page for a coffee shop', 'landing', 'food'],
+    ['a landing page for my plant shop', 'landing', 'plants'],
+    ['an online store selling house plants', 'store', 'plants'],
+    ['a pricing page for a barbershop', 'pricing', 'generic'],
+    ['a website for a coffee shop', 'landing', 'food'],
+  ];
+
+  it.each(ROUTES)('"%s" → %s (%s)', (prompt, template, topic) => {
+    const spec = specFromPrompt(prompt);
+    expect(spec.template).toBe(template);
+    expect(spec.topic).toBe(topic);
   });
 });
 
@@ -335,6 +362,274 @@ describe('diffFileSystems', () => {
   it('reports no changes for identical file systems', () => {
     const files = generateFiles(parsePrompt('a landing page', 'seed-diff'));
     expect(diffFileSystems(files, files)).toEqual([]);
+  });
+});
+
+describe('detectTopic', () => {
+  const MATRIX: ReadonlyArray<[string, TopicDomain]> = [
+    ['a landing page for my coffee shop', 'food'],
+    ['a recipe site for weeknight kitchens', 'food'],
+    ['an online store for house plants', 'plants'],
+    ['a succulent garden blog', 'plants'],
+    ['a saas analytics dashboard', 'tech'],
+    ['a startup landing page for an ai api', 'tech'],
+    ['a yoga studio site', 'fitness'],
+    ['a gym workout tracker', 'fitness'],
+    ['a boutique clothing store', 'fashion'],
+    ['a jewelry brand page', 'fashion'],
+    ['a wedding photography portfolio', 'photography'],
+    ['a travel blog about slow trips', 'travel'],
+    ['a site for my band', 'music'],
+    ['a podcast landing page', 'music'],
+    ['a meditation and skincare spa page', 'wellness'],
+    ['something nice for me please', 'generic'],
+  ];
+
+  it.each(MATRIX)('"%s" → %s', (prompt, topic) => {
+    expect(detectTopic(prompt)).toBe(topic);
+  });
+
+  it('prefers the specific domain over a weak tech word', () => {
+    // "app" alone is a weak tech signal; meditation should win.
+    expect(detectTopic('a meditation app')).toBe('wellness');
+    expect(detectTopic('a recipe app')).toBe('food');
+  });
+});
+
+describe('parsePrompt — style archetypes and hero layouts', () => {
+  const HINTS: ReadonlyArray<[string, StyleArchetype]> = [
+    ['a minimal landing page', 'minimal'],
+    ['a clean simple portfolio', 'minimal'],
+    ['a bold vibrant glassy landing page', 'gradient'],
+    ['an elegant magazine style blog', 'editorial'],
+    ['a luxury boutique page', 'editorial'],
+    ['a brutalist portfolio', 'brutalist'],
+    ['a stark raw landing page', 'brutalist'],
+    ['a playful pastel todo app', 'soft'],
+  ];
+
+  it.each(HINTS)('"%s" → %s archetype', (prompt, archetype) => {
+    expect(specFromPrompt(prompt).style.archetype).toBe(archetype);
+  });
+
+  it('parses hero layout hints', () => {
+    expect(specFromPrompt('a landing page with a split hero').style.hero).toBe('split');
+    expect(specFromPrompt('a landing page with a full-bleed banner').style.hero).toBe('banner');
+    expect(specFromPrompt('a landing page with a centered hero').style.hero).toBe('centered');
+  });
+
+  it('two seeds, same prompt → different archetypes for at least one pinned pair', () => {
+    const pairs: ReadonlyArray<[string, string]> = [
+      ['s1', 's2'],
+      ['s3', 's4'],
+      ['s5', 's6'],
+    ];
+    const differing = pairs.filter(([a, b]) => {
+      const specA = parsePrompt('a landing page', a);
+      const specB = parsePrompt('a landing page', b);
+      return specA.style.archetype !== specB.style.archetype;
+    });
+    expect(differing.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('always produces a valid style, even without hints', () => {
+    const spec = specFromPrompt('a landing page');
+    expect(['minimal', 'gradient', 'editorial', 'brutalist', 'soft']).toContain(spec.style.archetype);
+    expect(['centered', 'split', 'banner', 'editorial']).toContain(spec.style.hero);
+  });
+});
+
+describe('archetype-driven codegen', () => {
+  function cssFor(prompt: string, seed: string): string {
+    return fileContents(generateFiles(parsePrompt(prompt, seed)), 'css/styles.css');
+  }
+
+  it('brutalist CSS uses hard offset shadows and zero radii', () => {
+    const css = cssFor('a brutalist landing page', 'arch-b');
+    expect(css).toContain('6px 6px 0');
+    expect(css).toContain('--radius-md: 0');
+    expect(css).toContain('--radius-btn: 0');
+    expect(css).toMatch(/border:\s*3px solid/);
+  });
+
+  it('gradient CSS uses glass cards with backdrop-filter', () => {
+    const css = cssFor('a glassy landing page', 'arch-g');
+    expect(css).toContain('backdrop-filter');
+    expect(css).toContain('radial-gradient');
+  });
+
+  it('minimal CSS paints no shadows at all', () => {
+    const css = cssFor('a minimal landing page', 'arch-m');
+    expect(css.match(/box-shadow/g)).toBeNull();
+  });
+
+  it('editorial CSS serves serif display headings and numbered sections', () => {
+    const css = cssFor('an editorial landing page', 'arch-e');
+    expect(css).toContain('Georgia');
+    expect(css).toContain('decimal-leading-zero');
+  });
+
+  it('hero layout markup differs between two pinned specs', () => {
+    const split = parsePrompt('a landing page with a split hero', 'hero-a');
+    const banner = parsePrompt('a landing page with a full-bleed banner', 'hero-b');
+    const splitHtml = fileContents(generateFiles(split), 'index.html');
+    const bannerHtml = fileContents(generateFiles(banner), 'index.html');
+    expect(splitHtml).toContain('hero-split');
+    expect(splitHtml).toContain('hero-visual');
+    expect(bannerHtml).toContain('hero-banner');
+    expect(bannerHtml).not.toContain('hero-visual');
+    expect(splitHtml).not.toBe(bannerHtml);
+  });
+});
+
+describe('topic-driven content', () => {
+  it('a house plants store sells only plant-pool products', () => {
+    const spec = parsePrompt('an online store for house plants', 'plants-1');
+    expect(spec.topic).toBe('plants');
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const poolNames = contentFor('plants', createRng('any')).products.map((p) => p.name);
+    const rendered = [...html.matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]);
+    expect(rendered.length).toBeGreaterThanOrEqual(6);
+    for (const name of rendered) {
+      expect(poolNames).toContain(name?.replaceAll('&#39;', "'"));
+    }
+  });
+
+  it('a gym habit tracker seeds habits from the fitness pool', () => {
+    const spec = parsePrompt('a habit tracker for my gym routine', 'fit-1');
+    expect(spec.topic).toBe('fitness');
+    const js = fileContents(generateFiles(spec), 'js/app.js');
+    const pool = contentFor('fitness', createRng('any')).habitIdeas;
+    const seeded = /var SEED_HABITS = (\[.*?\]);/.exec(js)?.[1];
+    expect(seeded).toBeDefined();
+    const habits = JSON.parse(seeded ?? '[]') as Array<{ name: string }>;
+    expect(habits.length).toBeGreaterThanOrEqual(3);
+    for (const habit of habits) expect(pool).toContain(habit.name);
+  });
+
+  it('content pools meet their minimum sizes for every domain', () => {
+    const domains: TopicDomain[] = [
+      'food', 'plants', 'tech', 'fitness', 'fashion',
+      'photography', 'travel', 'music', 'wellness', 'generic',
+    ];
+    for (const domain of domains) {
+      const content = contentFor(domain, createRng(`sizes-${domain}`));
+      expect(content.products.length, `${domain} products`).toBeGreaterThanOrEqual(8);
+      expect(content.posts.length, `${domain} posts`).toBeGreaterThanOrEqual(5);
+      expect(content.recipes.length, `${domain} recipes`).toBeGreaterThanOrEqual(6);
+      expect(content.galleryProjects.length, `${domain} gallery`).toBeGreaterThanOrEqual(6);
+      expect(content.personas.length, `${domain} personas`).toBeGreaterThanOrEqual(5);
+      expect(content.stats.length, `${domain} stats`).toBeGreaterThanOrEqual(4);
+      expect(content.featureIdeas.length, `${domain} features`).toBeGreaterThanOrEqual(6);
+      expect(content.habitIdeas.length, `${domain} habits`).toBeGreaterThanOrEqual(6);
+      expect(content.todoIdeas.length, `${domain} todos`).toBeGreaterThanOrEqual(7);
+      expect(content.kanbanCards.length, `${domain} kanban`).toBeGreaterThanOrEqual(9);
+      expect(content.noteTitles.length, `${domain} notes`).toBeGreaterThanOrEqual(6);
+      expect(content.chatContacts.length, `${domain} contacts`).toBeGreaterThanOrEqual(4);
+    }
+  });
+});
+
+describe('style edit ops', () => {
+  const base = specFromPrompt('a landing page for a coffee subscription');
+
+  it('parses and applies setArchetype', () => {
+    const ops = parseEdit('go brutalist', base);
+    expect(ops).toEqual([{ kind: 'setArchetype', archetype: 'brutalist' }]);
+    const next = applyEdits(base, ops);
+    expect(next.style.archetype).toBe('brutalist');
+    expect(next.style.hero).toBe(base.style.hero);
+  });
+
+  it('maps look phrasings to archetypes', () => {
+    expect(parseEdit('make it minimal', base)).toEqual([
+      { kind: 'setArchetype', archetype: 'minimal' },
+    ]);
+    expect(parseEdit('more editorial please', base)).toEqual([
+      { kind: 'setArchetype', archetype: 'editorial' },
+    ]);
+    expect(parseEdit('give it a softer, playful look', base)).toEqual([
+      { kind: 'setArchetype', archetype: 'soft' },
+    ]);
+    expect(parseEdit('try a glassy gradient look', base)).toEqual([
+      { kind: 'setArchetype', archetype: 'gradient' },
+    ]);
+  });
+
+  it('parses and applies setHero', () => {
+    const split = applyEdits(base, parseEdit('make the hero a split layout', base));
+    expect(split.style.hero).toBe('split');
+    const banner = applyEdits(base, parseEdit('use a banner hero', base));
+    expect(banner.style.hero).toBe('banner');
+    const centered = applyEdits(base, parseEdit('center the hero', base));
+    expect(centered.style.hero).toBe('centered');
+  });
+
+  it('combines style ops with other edits in one message', () => {
+    const ops = parseEdit('go brutalist and make the hero a split layout', base);
+    const next = applyEdits(base, ops);
+    expect(next.style).toEqual({ archetype: 'brutalist', hero: 'split' });
+  });
+
+  it('round-trips through the engine with a look-aware summary', () => {
+    const project = engine.createProject({ prompt: 'a landing page called Drift', seed: 'style-1' });
+    const reply = engine.applyMessage({
+      spec: project.spec,
+      message: 'switch to a brutalist look',
+      seed: 'style-1:1',
+    });
+    expect(reply.kind).toBe('generation');
+    if (reply.kind !== 'generation') return;
+    expect(reply.spec.style.archetype).toBe('brutalist');
+    expect(reply.summary).toMatch(/brutalist/i);
+    expect(fileContents(reply.files, 'css/styles.css')).toContain('6px 6px 0');
+  });
+});
+
+describe('normalizeSpec', () => {
+  function legacyOf(spec: ProjectSpec): StoredProjectSpec {
+    const clone = JSON.parse(JSON.stringify(spec)) as Record<string, unknown>;
+    delete clone['style'];
+    delete clone['topic'];
+    return clone as unknown as StoredProjectSpec;
+  }
+
+  it('fills missing style and topic deterministically', () => {
+    const spec = parsePrompt('a landing page called Drift', 'norm-1');
+    const legacy = legacyOf(spec);
+    const a = normalizeSpec(legacy);
+    const b = normalizeSpec(legacyOf(spec));
+    expect(a.style).toBeDefined();
+    expect(a.topic).toBeDefined();
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it('normalized legacy specs regenerate without throwing', () => {
+    const spec = parsePrompt('a habit tracker', 'norm-2');
+    const files = generateFiles(normalizeSpec(legacyOf(spec)));
+    expect(files).toHaveLength(4);
+    expect(fileContents(files, 'index.html')).toContain('<!doctype html>');
+  });
+
+  it('best-efforts the topic from name and tagline', () => {
+    const spec = parsePrompt('a store called "Coffee Corner"', 'norm-3');
+    const legacy = legacyOf(spec);
+    expect(normalizeSpec(legacy).topic).toBe('food');
+  });
+
+  it('leaves complete specs untouched', () => {
+    const spec = parsePrompt('a brutalist landing page', 'norm-4');
+    expect(normalizeSpec(spec)).toBe(spec);
+  });
+
+  it('applyMessage heals legacy specs before editing', () => {
+    const spec = parsePrompt('a landing page called Drift', 'norm-5');
+    const legacy = legacyOf(spec) as unknown as ProjectSpec;
+    const reply = engine.applyMessage({ spec: legacy, message: 'make it teal', seed: 'norm-5:1' });
+    expect(reply.kind).toBe('generation');
+    if (reply.kind !== 'generation') return;
+    expect(reply.spec.style).toBeDefined();
+    expect(reply.spec.topic).toBeDefined();
   });
 });
 
