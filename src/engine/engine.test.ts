@@ -4,7 +4,19 @@ import { engine, normalizeSpec, templateLabel, type StoredProjectSpec } from './
 import { parsePrompt } from './parse';
 import { applyEdits, parseEdit } from './edits';
 import { generateFiles } from './codegen';
-import { contentFor, detectTopic } from './codegen/content';
+import {
+  contentFor,
+  detectFlavor,
+  detectTopic,
+  DOMAIN_FLAVORS,
+  flavorFor,
+  UNIVERSAL_FAQ,
+  type TopicFlavor,
+} from './codegen/content';
+import { icon, ICON_NAMES, topicIcon } from './codegen/icons';
+import { heroProp, patternBg, productArt, type PatternKind } from './codegen/art';
+import { buildRuntimeJs } from './codegen/runtime';
+import { counterParts, sectionTone } from './codegen/shared';
 import { diffFileSystems } from './diff';
 import type {
   ProjectSpec,
@@ -129,24 +141,39 @@ describe('parsePrompt — spec details', () => {
     expect(specFromPrompt('a landing page').radius).toBe('rounded');
   });
 
-  it('uses per-template default sections', () => {
-    expect(specFromPrompt('a landing page').sections).toEqual([
-      'hero', 'features', 'testimonials', 'cta',
-    ]);
-    expect(specFromPrompt('a pricing page').sections).toEqual([
-      'hero', 'pricing', 'faq', 'cta',
-    ]);
-    expect(specFromPrompt('a portfolio of my work').sections).toEqual([
-      'hero', 'gallery', 'about', 'contact',
-    ]);
+  it('uses dense per-template default sections', () => {
+    const landing = specFromPrompt('a landing page').sections;
+    expect(landing.length).toBeGreaterThanOrEqual(6);
+    for (const id of ['hero', 'features', 'stats', 'about', 'testimonials', 'faq', 'cta'] as const) {
+      expect(landing).toContain(id);
+    }
+
+    const pricing = specFromPrompt('a pricing page').sections;
+    expect(pricing.length).toBeGreaterThanOrEqual(4);
+    for (const id of ['hero', 'pricing', 'faq', 'cta'] as const) {
+      expect(pricing).toContain(id);
+    }
+
+    const portfolio = specFromPrompt('a portfolio of my work').sections;
+    expect(portfolio.length).toBeGreaterThanOrEqual(5);
+    for (const id of ['hero', 'gallery', 'about', 'contact'] as const) {
+      expect(portfolio).toContain(id);
+    }
+
     expect(specFromPrompt('a simple todo list app').sections).toEqual([]);
   });
 
   it('adds mentioned sections in canonical order', () => {
     const spec = specFromPrompt('a landing page with pricing and a faq');
-    expect(spec.sections).toEqual([
-      'hero', 'features', 'testimonials', 'pricing', 'faq', 'cta',
-    ]);
+    expect(spec.sections).toContain('pricing');
+    expect(spec.sections).toContain('faq');
+    // Canonical top-to-bottom ordering is preserved.
+    const order: readonly string[] = [
+      'hero', 'features', 'stats', 'gallery', 'about',
+      'testimonials', 'pricing', 'faq', 'contact', 'newsletter', 'cta',
+    ];
+    const positions = spec.sections.map((section) => order.indexOf(section));
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
   it('parses feature flags', () => {
@@ -263,13 +290,16 @@ describe('engine.applyMessage', () => {
   const project = engine.createProject({ prompt: 'a landing page called Drift', seed: 'p3' });
 
   it('applies an edit and keeps the project seed', () => {
-    const reply = engine.applyMessage({ spec: project.spec, message: 'make it teal', seed: 'p3:1' });
+    // The seeded base palette must differ from the requested color for the
+    // diff assertions below to be meaningful.
+    expect(project.spec.palette.primary).not.toBe('#DC2626');
+    const reply = engine.applyMessage({ spec: project.spec, message: 'make it red', seed: 'p3:1' });
     expect(reply.kind).toBe('generation');
     if (reply.kind !== 'generation') return;
     expect(reply.spec.seed).toBe(project.spec.seed);
     expect(reply.spec.name).toBe('Drift');
-    expect(reply.spec.palette.primary).toBe('#0D9488');
-    expect(reply.summary).toMatch(/teal/i);
+    expect(reply.spec.palette.primary).toBe('#DC2626');
+    expect(reply.summary).toMatch(/red/i);
 
     const cssChange = reply.changes.find((change) => change.path === 'css/styles.css');
     expect(cssChange?.kind).toBe('modified');
@@ -526,6 +556,8 @@ describe('topic-driven content', () => {
       expect(content.kanbanCards.length, `${domain} kanban`).toBeGreaterThanOrEqual(9);
       expect(content.noteTitles.length, `${domain} notes`).toBeGreaterThanOrEqual(6);
       expect(content.chatContacts.length, `${domain} contacts`).toBeGreaterThanOrEqual(4);
+      expect(content.faq.length, `${domain} faq`).toBeGreaterThanOrEqual(6);
+      expect(content.testimonials.length, `${domain} testimonials`).toBeGreaterThanOrEqual(6);
     }
   });
 });
@@ -630,6 +662,438 @@ describe('normalizeSpec', () => {
     if (reply.kind !== 'generation') return;
     expect(reply.spec.style).toBeDefined();
     expect(reply.spec.topic).toBeDefined();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Foundation layer: icons, art, runtime, density, tagline grammar     */
+/* ------------------------------------------------------------------ */
+
+const ALL_DOMAINS: readonly TopicDomain[] = [
+  'food', 'plants', 'tech', 'fitness', 'fashion',
+  'photography', 'travel', 'music', 'wellness', 'generic',
+];
+
+describe('foundation — icons', () => {
+  it('renders every icon as a stroke-based currentColor svg', () => {
+    expect(ICON_NAMES.length).toBeGreaterThanOrEqual(28);
+    for (const name of ICON_NAMES) {
+      const svg = icon(name);
+      expect(svg, name).toContain('<svg');
+      expect(svg, name).toContain('aria-hidden="true"');
+      expect(svg, name).toContain('stroke="currentColor"');
+      expect(svg, name).toContain('viewBox="0 0 24 24"');
+      expect(svg, name).toContain('stroke-width="1.8"');
+    }
+  });
+
+  it('applies an optional class to the svg element', () => {
+    expect(icon('star', 'star-i')).toContain('class="star-i"');
+    expect(icon('star')).not.toContain('class=');
+  });
+
+  it('topicIcon maps every domain to a real icon', () => {
+    for (const domain of ALL_DOMAINS) {
+      expect(ICON_NAMES).toContain(topicIcon(domain));
+    }
+  });
+});
+
+describe('foundation — art', () => {
+  const PROP_MARKERS: Record<TopicDomain, string> = {
+    tech: 'hp-browser',
+    photography: 'hp-photos',
+    food: 'hp-menu',
+    plants: 'hp-arch',
+    fitness: 'hp-ring',
+    travel: 'hp-pass',
+    music: 'hp-wave',
+    fashion: 'hp-look',
+    wellness: 'hp-breath',
+    generic: 'hp-glass',
+  };
+
+  it.each(ALL_DOMAINS)('heroProp renders the %s signature prop', (domain) => {
+    const spec: ProjectSpec = { ...parsePrompt('a landing page', 'art-seed'), topic: domain };
+    const content = contentFor(domain, createRng('art-content'));
+    const piece = heroProp(spec, createRng('art-rng'), content);
+    expect(piece.html).toContain(PROP_MARKERS[domain]);
+    expect(piece.css.length).toBeGreaterThan(100);
+  });
+
+  it('heroProp is deterministic for identical inputs', () => {
+    const spec = parsePrompt('a landing page for my coffee shop', 'det-seed');
+    const content = contentFor(spec.topic, createRng('det-content'));
+    const a = heroProp(spec, createRng('det-rng'), content);
+    const b = heroProp(spec, createRng('det-rng'), content);
+    expect(a.html).toBe(b.html);
+    expect(a.css).toBe(b.css);
+  });
+
+  it('animated props guard their animation behind reduced-motion', () => {
+    for (const domain of ['music', 'wellness'] as const) {
+      const spec: ProjectSpec = { ...parsePrompt('a landing page', 'anim-seed'), topic: domain };
+      const piece = heroProp(spec, createRng('anim-rng'), contentFor(domain, createRng('c')));
+      if (piece.css.includes('animation:')) {
+        expect(piece.css).toContain('prefers-reduced-motion: no-preference');
+      }
+    }
+  });
+
+  it('patternBg produces four distinct texture recipes', () => {
+    const kinds: readonly PatternKind[] = ['dotGrid', 'lineGrid', 'diagonalStripes', 'speckle'];
+    const recipes = kinds.map((kind) => patternBg(kind, createRng(`pat-${kind}`)));
+    for (const recipe of recipes) expect(recipe).toContain('background-image');
+    expect(new Set(recipes).size).toBe(4);
+  });
+
+  it('productArt is deterministic per (seed, index) and mesh-layered', () => {
+    const a = productArt(createRng('pa-seed:2'), 'plants', 2);
+    const b = productArt(createRng('pa-seed:2'), 'plants', 2);
+    expect(a.html).toBe(b.html);
+    expect(a.css).toBe(b.css);
+    expect(a.html).toContain('pa-2');
+    expect(a.html).toContain('<svg');
+    expect(a.css).toContain('conic-gradient');
+    expect(a.css).toContain('radial-gradient');
+  });
+});
+
+describe('foundation — runtime', () => {
+  const js = buildRuntimeJs({ rotator: true });
+
+  it('reveals via IntersectionObserver with a reduced-motion guard', () => {
+    expect(js).toContain('IntersectionObserver');
+    expect(js).toContain('prefers-reduced-motion: reduce');
+    expect(js).toContain('[data-reveal]');
+    expect(js).toContain('data-reveal-delay');
+  });
+
+  it('hooks up counters, nav toggle, anchors and the rotator', () => {
+    expect(js).toContain('[data-count-to]');
+    expect(js).toContain('[data-nav-toggle]');
+    expect(js).toContain('aria-expanded');
+    expect(js).toContain('scrollIntoView');
+    expect(js).toContain('[data-rotator]');
+    expect(buildRuntimeJs()).not.toContain('[data-rotator]');
+  });
+
+  it('never logs to the console', () => {
+    expect(js).not.toContain('console.');
+  });
+
+  it('counterParts splits display values for the counter runtime', () => {
+    expect(counterParts('4,200')).toEqual({
+      target: 4200, decimals: 0, group: true, prefix: '', suffix: '',
+    });
+    expect(counterParts('99.99%')).toEqual({
+      target: 99.99, decimals: 2, group: false, prefix: '', suffix: '%',
+    });
+    expect(counterParts('<50ms')).toEqual({
+      target: 50, decimals: 0, group: false, prefix: '<', suffix: 'ms',
+    });
+    expect(counterParts('4.9/5')?.suffix).toBe('/5');
+    // Clock-style values must not animate.
+    expect(counterParts('5:45')).toBeNull();
+  });
+});
+
+describe('foundation — page density and structure', () => {
+  it.each(['d1', 'd2', 'd3', 'd4'])('landing seed %s renders ≥6 distinct sections', (seed) => {
+    const spec = parsePrompt('a landing page for a coffee shop', seed);
+    expect(spec.sections.length).toBeGreaterThanOrEqual(6);
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const rendered = html.match(/<section\b/g)?.length ?? 0;
+    expect(rendered).toBeGreaterThanOrEqual(6);
+  });
+
+  it('long prompts bias toward denser pages', () => {
+    const long = parsePrompt(
+      'a landing page for a specialty coffee subscription that roasts weekly, ' +
+        'ships to your door, includes brew guides from real baristas and supports growers directly',
+      'dense-1',
+    );
+    expect(long.sections.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it('the landing page wires runtime hooks into markup and JS', () => {
+    const spec = parsePrompt('a landing page for a coffee shop', 'hooks-1');
+    const files = generateFiles(spec);
+    const html = fileContents(files, 'index.html');
+    const js = fileContents(files, 'js/app.js');
+
+    expect(html).toContain('data-reveal');
+    expect(html).toContain('data-count-to');
+    expect(html).toContain('class="wordmark"');
+    expect(js).toContain('IntersectionObserver');
+    expect(js).toContain('prefers-reduced-motion');
+  });
+
+  it('the header carries a functional hamburger for page templates', () => {
+    // Pin a seed whose header variant shows nav links.
+    const seeds = ['ham-1', 'ham-2', 'ham-3', 'ham-4'];
+    const withNav = seeds
+      .map((seed) => fileContents(generateFiles(parsePrompt('a landing page', seed)), 'index.html'))
+      .filter((html) => html.includes('data-nav-menu'));
+    expect(withNav.length).toBeGreaterThanOrEqual(1);
+    for (const html of withNav) {
+      expect(html).toContain('data-nav-toggle');
+      expect(html).toContain('aria-expanded="false"');
+    }
+  });
+
+  it('the footer is multi-column with at least 6 real anchors', () => {
+    const spec = parsePrompt('a landing page for a coffee shop', 'foot-1');
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const footer = html.slice(html.indexOf('<footer'));
+    expect(footer).toContain('footer-col');
+    expect(footer).toContain('footer-fine');
+    const anchors = footer.match(/href="#[a-z]/g)?.length ?? 0;
+    expect(anchors).toBeGreaterThanOrEqual(6);
+  });
+
+  it('section rhythm inverts the CTA and keeps the hero plain', () => {
+    const spec = parsePrompt('a landing page', 'tone-1');
+    expect(sectionTone(spec, 'hero')).toBe('plain');
+    expect(sectionTone(spec, 'cta')).toBe('invert');
+    const html = fileContents(generateFiles(spec), 'index.html');
+    expect(html).toContain('tone-invert');
+  });
+
+  it('brutalist reveals snap without translate; gradient reveals slide', () => {
+    const brutal = fileContents(
+      generateFiles(parsePrompt('a brutalist landing page', 'rev-b')),
+      'css/styles.css',
+    );
+    const brutalRule = /html\.js-reveal \[data-reveal\] \{[^}]*\}/.exec(brutal)?.[0] ?? '';
+    expect(brutalRule.length).toBeGreaterThan(0);
+    expect(brutalRule).not.toContain('translate');
+
+    const glassy = fileContents(
+      generateFiles(parsePrompt('a glassy landing page', 'rev-g')),
+      'css/styles.css',
+    );
+    const glassyRule = /html\.js-reveal \[data-reveal\] \{[^}]*\}/.exec(glassy)?.[0] ?? '';
+    expect(glassyRule).toContain('translateY');
+  });
+});
+
+describe('foundation — content depth and tagline grammar', () => {
+  it('every domain ships logoNames, kickers, longAbout and grammar pools', () => {
+    for (const domain of ALL_DOMAINS) {
+      const content = contentFor(domain, createRng(`depth-${domain}`));
+      expect(content.logoNames.length, `${domain} logoNames`).toBeGreaterThanOrEqual(6);
+      expect(content.heroKickers.length, `${domain} heroKickers`).toBeGreaterThanOrEqual(4);
+      expect(content.longAbout.length, `${domain} longAbout`).toBeGreaterThan(80);
+      expect(content.contactLine.length, `${domain} contactLine`).toBeGreaterThan(5);
+      expect(content.hoursLine.length, `${domain} hoursLine`).toBeGreaterThan(5);
+      expect(content.taglineImagery.length, `${domain} imagery`).toBeGreaterThanOrEqual(8);
+      expect(content.taglinePromises.length, `${domain} promises`).toBeGreaterThanOrEqual(6);
+    }
+  });
+
+  it('feature copy runs two sentences with concrete detail', () => {
+    for (const domain of ALL_DOMAINS) {
+      const content = contentFor(domain, createRng(`feat-${domain}`));
+      for (const idea of content.featureIdeas) {
+        const sentences = idea.text.split(/[.!?]\s|[.!?]$/).filter((part) => part.trim().length > 0);
+        expect(sentences.length, `${domain}: ${idea.title}`).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  it('8 seeds × one prompt → at least 6 unique composed taglines', () => {
+    const prompt = 'a landing page for a coffee shop';
+    const taglines = new Set(
+      ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8'].map(
+        (seed) => parsePrompt(prompt, seed).tagline,
+      ),
+    );
+    expect(taglines.size).toBeGreaterThanOrEqual(6);
+    for (const tagline of taglines) {
+      expect(tagline).not.toContain('A fresh take on');
+    }
+  });
+
+  it('logo wordmarks land in the rendered stats section', () => {
+    const spec = parsePrompt('a landing page for a coffee shop', 'logo-1');
+    expect(spec.sections).toContain('stats');
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const pool = contentFor('food', createRng('x')).logoNames;
+    const rendered = [...html.matchAll(/<li class="wordmark">([^<]+)<\/li>/g)].map((m) => m[1]);
+    expect(rendered.length).toBe(6);
+    for (const mark of rendered) {
+      expect(pool).toContain(mark?.replaceAll('&amp;', '&'));
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Sub-topic flavors: one voice per project                            */
+/* ------------------------------------------------------------------ */
+
+const COFFEE_PROMPT = 'a landing page for a specialty coffee roastery';
+/** Pinned seeds whose taglines pairwise share no 4-word stem. */
+const COFFEE_SEEDS = ['cf-1', 'cf-2', 'cf-4'] as const;
+const BAKERY_MARKERS = /bread|bake|crust|crumb/i;
+const COFFEE_MARKERS = /espresso|crema|barista|roaster/i;
+
+/** All 4-word windows of a text, lowercased and stripped of punctuation. */
+function shingles(text: string): Set<string> {
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+  const set = new Set<string>();
+  for (let i = 0; i + 4 <= words.length; i++) {
+    set.add(words.slice(i, i + 4).join(' '));
+  }
+  return set;
+}
+
+describe('sub-topic flavors — voice coherence', () => {
+  it.each(COFFEE_SEEDS)('coffee roastery seed %s renders zero bakery voice', (seed) => {
+    const spec = parsePrompt(COFFEE_PROMPT, seed);
+    expect(spec.topic).toBe('food');
+    // The flavor must be recoverable from the spec alone at regen time.
+    expect(flavorFor(spec)).toBe('coffee');
+
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const h1 = /<h1>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? '';
+    const eyebrows = [...html.matchAll(/class="eyebrow">([^<]*)</g)].map((m) => m[1] ?? '');
+    const stats = [...html.matchAll(/class="stat-(?:value|label)"[^>]*>([^<]*)</g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(h1.length).toBeGreaterThan(0);
+    expect(eyebrows.length).toBeGreaterThan(0);
+    expect(stats.length).toBeGreaterThan(0);
+    for (const text of [h1, ...eyebrows, ...stats]) {
+      expect(text, `"${text}" leaked a bakery marker`).not.toMatch(BAKERY_MARKERS);
+    }
+    // The whole page speaks with one voice, not just the headline strings.
+    expect(html).not.toMatch(BAKERY_MARKERS);
+  });
+
+  it('three coffee seeds share no 4-word tagline stem and never echo the prompt', () => {
+    const taglines = COFFEE_SEEDS.map((seed) => parsePrompt(COFFEE_PROMPT, seed).tagline);
+    for (const tagline of taglines) {
+      expect(tagline.toLowerCase()).not.toContain('specialty coffee roastery');
+      expect(tagline).not.toMatch(BAKERY_MARKERS);
+    }
+    for (let i = 0; i < taglines.length; i++) {
+      for (let j = i + 1; j < taglines.length; j++) {
+        const shared = [...shingles(taglines[i] ?? '')].filter((s) =>
+          shingles(taglines[j] ?? '').has(s),
+        );
+        expect(shared, `"${taglines[i]}" vs "${taglines[j]}"`).toEqual([]);
+      }
+    }
+  });
+
+  it('a bakery prompt gets the bakery voice with no espresso markers', () => {
+    const spec = parsePrompt('a landing page for a neighborhood bakery', 'bk-1');
+    expect(spec.topic).toBe('food');
+    expect(flavorFor(spec)).toBe('bakery');
+    expect(`${spec.name} ${spec.tagline}`).toMatch(
+      /bread|bake|crust|crumb|flour|croissant|sourdough|loaf|loaves|pastr|prov|laminat|oven/i,
+    );
+    const html = fileContents(generateFiles(spec), 'index.html');
+    expect(html).not.toMatch(COFFEE_MARKERS);
+  });
+
+  it('food FAQ is concrete — no SaaS phrasing, at least one domain word', () => {
+    for (const seed of COFFEE_SEEDS) {
+      const html = fileContents(generateFiles(parsePrompt(COFFEE_PROMPT, seed)), 'index.html');
+      const faq = /<section[^>]*id="faq"[\s\S]*?<\/section>/.exec(html)?.[0] ?? '';
+      expect(faq.length).toBeGreaterThan(0);
+      expect(faq).not.toMatch(/\bplans?\b|\bsetup\b|data portable/i);
+      expect(faq).toMatch(/coffee|roast|bean|brew|grind|bag|farm|deliver|ingredient|cupping/i);
+      // At most one universal Q&A rides along with the domain pool.
+      const universalHits = UNIVERSAL_FAQ.filter((entry) => faq.includes(entry.q)).length;
+      expect(universalHits).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('food testimonials speak the domain and never say "toolkit"', () => {
+    for (const seed of COFFEE_SEEDS) {
+      const spec = parsePrompt(COFFEE_PROMPT, seed);
+      const html = fileContents(generateFiles(spec), 'index.html');
+      expect(html).not.toContain('toolkit');
+      const section = /<section[^>]*id="testimonials"[\s\S]*?<\/section>/.exec(html)?.[0] ?? '';
+      expect(section.length).toBeGreaterThan(0);
+      // Quotes reference domain-concrete things and weave the brand name in.
+      expect(section).toMatch(/coffee|roast|crema|espresso|pour-over|blend|bag|cups?/i);
+      expect(section).toContain(spec.name);
+    }
+  });
+
+  it('two menu props on one landing render different items', () => {
+    const spec = parsePrompt(COFFEE_PROMPT, 'cf-1');
+    expect(spec.sections).toContain('about');
+    const html = fileContents(generateFiles(spec), 'index.html');
+    const menus = [...html.matchAll(/<ul class="hp-menu-list">([\s\S]*?)<\/ul>/g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(menus.length).toBeGreaterThanOrEqual(2);
+    expect(menus[0]).not.toBe(menus[1]);
+  });
+
+  it('podcast and yoga prompts land their own voices, not a sibling voice', () => {
+    const pod = parsePrompt('a landing page for my true crime podcast', 'pd-1');
+    expect(pod.topic).toBe('music');
+    expect(flavorFor(pod)).toBe('podcast');
+    const podHtml = fileContents(generateFiles(pod), 'index.html');
+    const podHero = /<section[^>]*id="hero"[\s\S]*?<\/section>/.exec(podHtml)?.[0] ?? '';
+    expect(podHero.length).toBeGreaterThan(0);
+    expect(podHero).not.toMatch(/vinyl|setlist|encore|\bamps?\b|mastering/i);
+
+    const yoga = parsePrompt('a landing page for a yoga studio', 'yg-1');
+    expect(yoga.topic).toBe('fitness');
+    expect(flavorFor(yoga)).toBe('yoga');
+    const yogaHtml = fileContents(generateFiles(yoga), 'index.html');
+    const yogaHero = /<section[^>]*id="hero"[\s\S]*?<\/section>/.exec(yogaHtml)?.[0] ?? '';
+    expect(yogaHero.length).toBeGreaterThan(0);
+    expect(yogaHero).not.toMatch(/barbell|deadlift|squat|marathon|\breps?\b/i);
+  });
+
+  it('every flavored tagline stem recovers its own flavor at detection time', () => {
+    // The determinism invariant: a tagline composed from a voice's pools
+    // must always re-detect that voice from the spec alone.
+    const domains = Object.entries(DOMAIN_FLAVORS) as Array<
+      [TopicDomain, readonly TopicFlavor[] | undefined]
+    >;
+    expect(domains.length).toBeGreaterThanOrEqual(3);
+    for (const [topic, flavors] of domains) {
+      for (const flavor of flavors ?? []) {
+        const pools = contentFor(topic, createRng(`stems-${topic}-${flavor}`), flavor);
+        expect(pools.taglineImagery.length, `${topic}/${flavor} stems`).toBeGreaterThanOrEqual(8);
+        expect(pools.taglinePromises.length, `${topic}/${flavor} promises`).toBeGreaterThanOrEqual(6);
+        for (const imagery of pools.taglineImagery) {
+          for (const promise of pools.taglinePromises) {
+            expect(
+              detectFlavor(topic, `${imagery}, ${promise}.`),
+              `${topic}/${flavor}: "${imagery}" + "${promise}"`,
+            ).toBe(flavor);
+          }
+        }
+      }
+    }
+  });
+
+  it('generation stays deterministic and flavor-stable across repeated regens', () => {
+    const prompts = [
+      COFFEE_PROMPT,
+      'a landing page for a neighborhood bakery',
+      'a landing page for my true crime podcast',
+      'a landing page for a run club',
+    ];
+    for (const prompt of prompts) {
+      const spec = parsePrompt(prompt, 'regen-1');
+      const roundTripped = JSON.parse(JSON.stringify(spec)) as ProjectSpec;
+      expect(flavorFor(roundTripped)).toBe(flavorFor(spec));
+      expect(JSON.stringify(generateFiles(spec))).toBe(JSON.stringify(generateFiles(roundTripped)));
+    }
   });
 });
 
