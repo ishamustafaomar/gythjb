@@ -27,6 +27,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  /** Closing prose streamed after the edits card (assistant turns). */
+  outro?: string;
   ts: number;
   status: MessageStatus;
   /** Bullet plan shown on first generation. */

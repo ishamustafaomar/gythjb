@@ -108,15 +108,15 @@ async function streamAssistantTurn(
     };
     useProjects.getState().addVersion(projectId, version);
 
-    let outro = text + '\n\n';
+    let outro = '';
     for (const chunk of chunksOf(plan.outro)) {
       outro += chunk;
-      patch({ text: outro }, { persist: false });
+      patch({ outro }, { persist: false });
       await sleep(18, signal);
     }
 
     patch({
-      text: outro,
+      outro,
       status: 'complete',
       versionId: version.id,
       versionNumber,

@@ -22,7 +22,8 @@ export function ChatPanel({
   selection: ElementSelection | null;
   onClearSelection: () => void;
 }) {
-  const messages = useProjects((s) => s.messages[projectId]) ?? [];
+  const storedMessages = useProjects((s) => s.messages[projectId]);
+  const messages = React.useMemo(() => storedMessages ?? [], [storedMessages]);
   const project = useProjects((s) => s.projects.find((p) => p.id === projectId));
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const pinnedToBottom = React.useRef(true);

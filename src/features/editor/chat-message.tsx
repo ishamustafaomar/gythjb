@@ -15,7 +15,15 @@ import { Button } from '@/components/ui/button';
 import { WithTooltip } from '@/components/ui/tooltip';
 import type { ChatMessage as ChatMessageModel } from '@/stores/projects';
 import type { FileChange } from '@/engine/types';
-import { cn } from '@/lib/utils';
+
+function StreamingCaret() {
+  return (
+    <span
+      aria-hidden
+      className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-caret-blink rounded-full bg-foreground"
+    />
+  );
+}
 
 function fileIcon(path: string) {
   if (path.endsWith('.css')) return <Braces className="size-3.5" aria-hidden />;
@@ -171,26 +179,24 @@ export const ChatMessage = React.memo(function ChatMessage({
           <p className="shimmer-text w-fit text-sm font-medium">Thinking…</p>
         ) : (
           <>
-            <div className="text-sm leading-relaxed">
-              {message.text.split('\n\n').map((paragraph, i) => (
-                <p key={i} className={cn('whitespace-pre-wrap break-words', i > 0 && 'mt-2.5')}>
-                  {paragraph}
-                  {message.status === 'streaming' &&
-                    i === message.text.split('\n\n').length - 1 && (
-                      <span
-                        aria-hidden
-                        className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-caret-blink rounded-full bg-foreground"
-                      />
-                    )}
-                </p>
-              ))}
-            </div>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+              {message.text}
+              {message.status === 'streaming' && message.outro === undefined && (
+                <StreamingCaret />
+              )}
+            </p>
             {message.planItems && <PlanList items={message.planItems} />}
             <EditsCard
               message={message}
               isHead={isHeadVersion}
               onRestore={onRestore}
             />
+            {message.outro !== undefined && message.outro.length > 0 && (
+              <p className="mt-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {message.outro}
+                {message.status === 'streaming' && <StreamingCaret />}
+              </p>
+            )}
             {message.status === 'stopped' && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <CircleSlash className="size-3.5" aria-hidden />
