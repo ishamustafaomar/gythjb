@@ -6,7 +6,6 @@ import {
 } from '@/components/shared/prompt-composer';
 import { ChatMessage } from '@/features/editor/chat-message';
 import {
-  isGenerating,
   restoreVersion,
   sendProjectMessage,
   stopGeneration,
@@ -112,7 +111,7 @@ export function ChatPanel({
             ) : undefined
           }
         />
-        {isGenerating(projectId) && (
+        {busy && (
           <p className="sr-only" role="status">
             The agent is generating changes
           </p>
