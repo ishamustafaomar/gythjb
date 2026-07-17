@@ -10,9 +10,11 @@ import type {
   ColorMode,
   ElementSelection,
   FontStyle,
+  HeroLayout,
   ProjectSpec,
   RadiusStyle,
   SectionId,
+  StyleArchetype,
 } from './types';
 import { COLOR_PAIRS, SECTION_ORDER, findColorWord, smartTitle, splitLeadingName } from './parse';
 
@@ -31,7 +33,9 @@ export type EditOp =
   | { kind: 'font'; font: FontStyle }
   | { kind: 'stickyHeader'; enabled: boolean }
   | { kind: 'compact'; enabled: boolean }
-  | { kind: 'animations'; enabled: boolean };
+  | { kind: 'animations'; enabled: boolean }
+  | { kind: 'setArchetype'; archetype: StyleArchetype }
+  | { kind: 'setHero'; hero: HeroLayout };
 
 /* ------------------------------------------------------------------ */
 /* Section vocabulary                                                  */
@@ -142,10 +146,57 @@ export function parseEdit(
     parseClause(clause, spec, ops);
   }
 
-  return ops;
+  // Adjacent clauses often restate the same intent ("softer, playful look")
+  // — collapse exact duplicate ops while keeping first-seen order.
+  const seen = new Set<string>();
+  return ops.filter((op) => {
+    const key = JSON.stringify(op);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
+/**
+ * Look/archetype hints. Ordered most-specific first; every pattern needs a
+ * style-ish trigger so "a simple question" never restyles the project.
+ */
+const ARCHETYPE_EDIT_HINTS: ReadonlyArray<{ archetype: StyleArchetype; pattern: RegExp }> = [
+  { archetype: 'brutalist', pattern: /\bbrutalis\w*\b|\bstark(?:er)?\s*(?:look|style|design)?\b|\braw\s+(?:look|style|design)\b/ },
+  { archetype: 'editorial', pattern: /\beditorial\b(?!\s+hero)|\bmagazine\b|\bluxur\w*\b/ },
+  { archetype: 'gradient', pattern: /\bglass(?:y|morphism)?\b|\bgradients?\b|\bvibrant\b/ },
+  { archetype: 'soft', pattern: /\bpastel\b|\bplayful\b|\bfriendl(?:y|ier)\b|\bcuter?\b|\bsofter\b(?!\s+corners)|\bsoft\s+(?:look|style|design|vibe)\b/ },
+  { archetype: 'minimal', pattern: /\bminimal(?:ist)?\b|\bcleaner\s+(?:look|style|design)?\b|\bsimpler\s+(?:look|style|design)\b|\bclean\s+(?:look|style|design)\b/ },
+];
+
+const HERO_EDIT_HINTS: ReadonlyArray<{ hero: HeroLayout; pattern: RegExp }> = [
+  { hero: 'split', pattern: /\bhero\b.*\bsplit\b|\bsplit\b.*\bhero\b/ },
+  { hero: 'banner', pattern: /\bhero\b.*\bbanner\b|\bbanner\b.*\bhero\b|\bfull[-\s]?bleed\s+(?:banner|hero)\b/ },
+  { hero: 'editorial', pattern: /\bhero\b.*\beditorial\b|\beditorial\s+hero\b/ },
+  { hero: 'centered', pattern: /\bcenter(?:ed)?\b.*\bhero\b|\bhero\b.*\bcenter(?:ed)?\b/ },
+];
+
 function parseClause(clause: string, spec: ProjectSpec, ops: EditOp[]): void {
+  // Hero layout first — "editorial hero" is a layout, not an archetype.
+  let heroMatched = false;
+  for (const hint of HERO_EDIT_HINTS) {
+    if (hint.pattern.test(clause)) {
+      ops.push({ kind: 'setHero', hero: hint.hero });
+      heroMatched = true;
+      break;
+    }
+  }
+
+  // Visual archetype ("go brutalist", "softer look", "make it minimal").
+  if (!heroMatched) {
+    for (const hint of ARCHETYPE_EDIT_HINTS) {
+      if (hint.pattern.test(clause)) {
+        ops.push({ kind: 'setArchetype', archetype: hint.archetype });
+        break;
+      }
+    }
+  }
+
   // Color mode.
   if (/\bdark(?:er)?\b|\bnight\s*mode\b/.test(clause) && !/\blight\b/.test(clause)) {
     ops.push({ kind: 'mode', mode: 'dark' });
@@ -199,7 +250,7 @@ function parseClause(clause: string, spec: ProjectSpec, ops: EditOp[]): void {
     ops.push({ kind: 'radius', radius: stepRadius(spec.radius, 1) });
   } else if (/\bsharper\b|\bless\s+rounded\b|\bsquarer\b/.test(clause)) {
     ops.push({ kind: 'radius', radius: stepRadius(spec.radius, -1) });
-  } else if (/\bsharp\s+corners\b|\bsquare\s+corners\b|\bbrutalis\w+\b|\bmake\s+(?:it|everything)\s+sharp\b/.test(clause)) {
+  } else if (/\bsharp\s+corners\b|\bsquare\s+corners\b|\bmake\s+(?:it|everything)\s+sharp\b/.test(clause)) {
     ops.push({ kind: 'radius', radius: 'sharp' });
   }
 
@@ -208,7 +259,7 @@ function parseClause(clause: string, spec: ProjectSpec, ops: EditOp[]): void {
     ops.push({ kind: 'font', font: 'sans' });
   } else if (/\bmono(?:space[d]?)?\b|\bterminal\b|\btypewriter\b/.test(clause)) {
     ops.push({ kind: 'font', font: 'mono' });
-  } else if (/\bserif\b|\beditorial\b|\belegant\s+(?:font|type|typeface)\b/.test(clause)) {
+  } else if (/\bserif\b|\belegant\s+(?:font|type|typeface)\b/.test(clause)) {
     ops.push({ kind: 'font', font: 'serif' });
   }
 
@@ -257,6 +308,7 @@ export function applyEdits(spec: ProjectSpec, ops: readonly EditOp[]): ProjectSp
   let next: ProjectSpec = {
     ...spec,
     palette: { ...spec.palette },
+    style: { ...spec.style },
     sections: [...spec.sections],
     features: [...spec.features],
   };
@@ -295,6 +347,12 @@ export function applyEdits(spec: ProjectSpec, ops: readonly EditOp[]): ProjectSp
         break;
       case 'animations':
         next = { ...next, features: toggleFeature(next.features, 'animations', op.enabled) };
+        break;
+      case 'setArchetype':
+        next = { ...next, style: { ...next.style, archetype: op.archetype } };
+        break;
+      case 'setHero':
+        next = { ...next, style: { ...next.style, hero: op.hero } };
         break;
     }
   }

@@ -61,12 +61,60 @@ export interface ProjectSpec {
   palette: PaletteSpec;
   radius: RadiusStyle;
   font: FontStyle;
+  /**
+   * Visual language of the generated app. Parsed from prompt hints
+   * ("minimal", "brutalist", "elegant"…) or seeded when unspecified,
+   * so different projects genuinely look different.
+   */
+  style: StyleSpec;
+  /**
+   * Content domain inferred from the prompt ("coffee shop" → food,
+   * "house plants" → plants…). Drives every content pool — product
+   * names, post titles, personas, gallery captions — so generated
+   * copy matches what the user asked for.
+   */
+  topic: TopicDomain;
   /** Ordered sections; only meaningful for page-like templates. */
   sections: SectionId[];
   features: FeatureFlag[];
   /** Determinism seed — set once at project creation. */
   seed: string;
 }
+
+/**
+ * Five deliberately distinct visual languages. Each one changes layout,
+ * chrome, typography treatment, surfaces, and shadows — not just colors.
+ */
+export type StyleArchetype =
+  | 'minimal' // flat surfaces, hairline borders, tight quiet type
+  | 'gradient' // radial glows, glassy cards, large radii, bold display
+  | 'editorial' // serif display, rules & numerals, asymmetric grids
+  | 'brutalist' // thick borders, hard offset shadows, uppercase, zero radius
+  | 'soft'; // pastel tints, pill shapes, floating shadows, friendly
+
+export type HeroLayout =
+  | 'centered' // stacked, center-aligned
+  | 'split' // copy left, visual panel right
+  | 'banner' // full-bleed color/gradient block
+  | 'editorial'; // oversized left-aligned display with offset meta
+
+export interface StyleSpec {
+  archetype: StyleArchetype;
+  hero: HeroLayout;
+}
+
+/** Content domains with dedicated copy/content pools in codegen. */
+export type TopicDomain =
+  | 'food'
+  | 'plants'
+  | 'tech'
+  | 'fitness'
+  | 'fashion'
+  | 'photography'
+  | 'travel'
+  | 'music'
+  | 'wellness'
+  | 'generic';
 
 export type FileLanguage = 'html' | 'css' | 'js' | 'markdown';
 

@@ -1,9 +1,10 @@
 /**
- * Blog template — a home feed of posts with excerpts and reading times,
- * plus a single-post view toggled with JS (posts are pre-rendered).
+ * Blog template — a home feed of topic-driven posts with excerpts and
+ * reading times, plus a single-post view toggled with JS.
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -13,86 +14,34 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-interface Post {
-  title: string;
-  tag: string;
-  excerpt: string;
-  paragraphs: readonly string[];
-}
-
-const POST_POOL: readonly Post[] = [
-  {
-    title: 'What a slow morning taught me about shipping',
-    tag: 'Process',
-    excerpt: 'I missed a deadline, made porridge, and accidentally learned the difference between urgency and momentum.',
-    paragraphs: [
-      'The deadline slipped at 8:40 in the morning and, for once, I let it. Instead of triaging, I made porridge and watched the kettle do its one job with total commitment.',
-      'By the second coffee an odd thing happened: the feature I had been wrestling with for a week untangled itself in my head, uninvited. The knot was never technical. It was hurry.',
-      'I still believe in deadlines. But now I schedule the porridge too.',
-    ],
-  },
-  {
-    title: 'A week without notifications',
-    tag: 'Attention',
-    excerpt: 'Seven days with every badge and banner switched off. Some findings were predictable. One was not.',
-    paragraphs: [
-      'The predictable part: nothing broke, nobody was angry, and the fear of missing something urgent turned out to be mostly decorative.',
-      'The surprise was physical. Around day three I noticed I had stopped reaching for the phone during pauses — waiting for tea, standing in lifts. The pauses just became pauses again.',
-      'Notifications are back on now, but only for humans. Software can wait its turn.',
-    ],
-  },
-  {
-    title: 'The quiet power of good defaults',
-    tag: 'Design',
-    excerpt: 'Most users never open the settings page. What you choose for them is the product.',
-    paragraphs: [
-      'Every option you expose is a small tax on everyone who meets it. Every default you choose well is a gift most people will never notice — which is exactly the point.',
-      'The craft is in deciding what the software believes before anyone tells it anything. Margins, intervals, sort orders: these are opinions, and shipping them is the honest part of design.',
-      'Settings pages are where disagreements go to live. Defaults are where care shows up.',
-    ],
-  },
-  {
-    title: 'Keeping a paper logbook in a digital job',
-    tag: 'Tools',
-    excerpt: 'Three years of one-line entries in a cheap notebook, and why I keep doing it.',
-    paragraphs: [
-      'Each workday gets one line: what actually happened, not what was planned. The rule keeps the habit cheap enough to survive busy weeks.',
-      'The notebook does something no app has managed — it never suggests anything. It just accumulates, quietly, until the year needs reviewing and suddenly it is the most useful document I own.',
-      'Highly recommended, especially if your job involves convincing computers to do things.',
-    ],
-  },
-  {
-    title: 'A gentle case for fewer features',
-    tag: 'Product',
-    excerpt: 'Deleting our roadmap’s bottom half was the most productive afternoon of the quarter.',
-    paragraphs: [
-      'Half of the roadmap existed because someone once asked, one time, in a meeting nobody remembered. We deleted it in an afternoon and waited for the complaints.',
-      'They never came. What came instead was speed: fewer branches, fewer states, fewer sentences in the docs. The product got easier to explain, which is another way of saying it got better.',
-      'Features are loans. Somebody pays the interest, and it is usually your future self.',
-    ],
-  },
-  {
-    title: 'Small tools, sharp edges',
-    tag: 'Craft',
-    excerpt: 'On preferring the utility knife to the multitool, in software and elsewhere.',
-    paragraphs: [
-      'The multitool promises everything and delivers most of it at three-quarter quality. The utility knife does one thing so well you stop thinking about it.',
-      'Software has the same physics. The tools I trust are the ones small enough to understand end to end — when they misbehave, the fix is an hour, not an archaeology project.',
-      'Collect small sharp things. They stay sharp.',
-    ],
-  },
+/** Neutral body paragraphs composed under each excerpt, seeded per post. */
+const BODY_PARAGRAPHS: readonly string[] = [
+  'It started, as most useful things do, with a small annoyance that refused to go away. Once we named it out loud, the shape of the answer was already half-visible.',
+  'The first attempt was wrong in an instructive way. The second was wrong in a boring way. The third one stuck, and it stuck because it was the simplest of the three.',
+  'What surprised us was not the result but how repeatable it turned out to be. Do the unglamorous part first, keep notes, and the rest gets easier every single time.',
+  'There is a version of this that costs twice as much and impresses nobody who matters. Skipping it was the best decision of the whole exercise.',
+  'If you take one thing from this, make it the habit rather than the specifics. The specifics will change by next season; the habit compounds.',
+  'We will keep refining and report back. In the meantime, the comments and the inbox are open — the best corrections always come from readers.',
 ];
+
+const POST_TAGS: readonly string[] = ['Field notes', 'Guide', 'Essay', 'Dispatch', 'Notebook'];
 
 export function renderBlog(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:blog`);
-  const postCount = rng.int(4, 6);
-  const start = rng.int(0, POST_POOL.length - 1);
-  const posts: Array<Post & { id: string; minutes: number }> = [];
-  for (let i = 0; i < postCount; i++) {
-    const post = POST_POOL[(start + i) % POST_POOL.length];
-    if (!post) continue;
-    posts.push({ ...post, id: `post-${i + 1}`, minutes: rng.int(3, 9) });
-  }
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const postCount = Math.min(rng.int(4, 6), content.posts.length);
+  const tagStart = rng.int(0, POST_TAGS.length - 1);
+  const posts = content.posts.slice(0, postCount).map((post, i) => ({
+    ...post,
+    id: `post-${i + 1}`,
+    tag: POST_TAGS[(tagStart + i) % POST_TAGS.length] ?? 'Notes',
+    minutes: rng.int(3, 9),
+    paragraphs: [
+      post.excerpt,
+      BODY_PARAGRAPHS[rng.int(0, 2)] ?? '',
+      BODY_PARAGRAPHS[rng.int(3, BODY_PARAGRAPHS.length - 1)] ?? '',
+    ],
+  }));
 
   const cards = posts
     .map(

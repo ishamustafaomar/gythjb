@@ -4,6 +4,7 @@
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -14,38 +15,19 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-const NOTE_POOL: ReadonlyArray<{ title: string; body: string }> = [
-  {
-    title: 'Reading list',
-    body: 'Books on the pile: a slim novel for evenings, one field guide, and that essay collection everyone keeps quoting.\n\nRule of the season: finish before buying.',
-  },
-  {
-    title: 'Kickoff meeting notes',
-    body: 'Scope is smaller than feared. Two milestones before the break.\n\nAction items:\n- circulate the summary\n- book the follow-up\n- ask about the budget line',
-  },
-  {
-    title: 'Ideas parking lot',
-    body: 'A weekly letter that is actually short. A shelf for unfinished projects. A timer that praises stopping on time.\n\nRevisit on the first of the month, delete freely.',
-  },
-  {
-    title: 'Grocery staples',
-    body: 'Oats, lemons, good bread, eggs, the decent olive oil, and whatever green thing looks freshest.\n\nDo not buy more jars. There are enough jars.',
-  },
-  {
-    title: 'Trip sketch',
-    body: 'Three days, one bag. Morning trains beat evening ones.\n\nMust do: the market, the long walk along the water, one aimless afternoon.',
-  },
-];
-
 export function renderNotes(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:notes`);
-  const noteCount = rng.int(3, 4);
-  const start = rng.int(0, NOTE_POOL.length - 1);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const noteCount = Math.min(rng.int(3, 4), content.noteTitles.length);
   const seedNotes: Array<{ id: string; title: string; body: string }> = [];
   for (let i = 0; i < noteCount; i++) {
-    const note = NOTE_POOL[(start + i) % NOTE_POOL.length];
-    if (!note) continue;
-    seedNotes.push({ id: `seed-${i + 1}`, title: note.title, body: note.body });
+    const title = content.noteTitles[i];
+    if (!title) continue;
+    const excerpt = content.posts[i % content.posts.length]?.excerpt ?? '';
+    const todoA = content.todoIdeas[i % content.todoIdeas.length] ?? 'follow up';
+    const todoB = content.todoIdeas[(i + 2) % content.todoIdeas.length] ?? 'review notes';
+    const body = `${excerpt}\n\nNext up:\n- ${todoA.toLowerCase()}\n- ${todoB.toLowerCase()}`;
+    seedNotes.push({ id: `seed-${i + 1}`, title, body });
   }
   const storageKey = `promptly:${slugify(spec.name)}:notes`;
 

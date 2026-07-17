@@ -4,7 +4,7 @@
  * same turn always reads the same way.
  */
 import type { Rng } from '@/lib/seeded';
-import type { ProjectSpec, SectionId, TemplateId } from './types';
+import type { HeroLayout, ProjectSpec, SectionId, StyleArchetype, TemplateId } from './types';
 import type { EditOp } from './edits';
 import { TEMPLATE_LABELS } from './codegen/shared';
 
@@ -50,6 +50,30 @@ const SECTION_LABELS: Record<SectionId, string> = {
 function lowerLabel(template: TemplateId): string {
   return TEMPLATE_LABELS[template].toLowerCase();
 }
+
+/** How each visual archetype is described in prose. */
+const LOOK_PHRASES: Record<StyleArchetype, string> = {
+  minimal: 'a minimal, hairline-and-whitespace layout',
+  gradient: 'a glassy, gradient-lit layout',
+  editorial: 'an editorial, magazine-style layout',
+  brutalist: 'a brutalist, high-contrast layout',
+  soft: 'a soft, friendly pastel layout',
+};
+
+const LOOK_NAMES: Record<StyleArchetype, string> = {
+  minimal: 'a minimal look',
+  gradient: 'a glassy gradient look',
+  editorial: 'an editorial look',
+  brutalist: 'a brutalist look',
+  soft: 'a soft, playful look',
+};
+
+const HERO_NAMES: Record<HeroLayout, string> = {
+  centered: 'a centered hero layout',
+  split: 'a split hero layout',
+  banner: 'a full-bleed banner hero',
+  editorial: 'an editorial hero layout',
+};
 
 /* ------------------------------------------------------------------ */
 /* Creation                                                            */
@@ -126,12 +150,13 @@ function article(word: string): string {
 export function buildCreationNarrative(spec: ProjectSpec, rng: Rng): CreationNarrative {
   const label = lowerLabel(spec.template);
   const a = article(label);
+  const look = LOOK_PHRASES[spec.style.archetype];
 
   const intro = rng.pick([
-    `Nice brief — I'll put together ${a} ${label} called ${spec.name}.`,
-    `Love it. Building ${spec.name}, ${a} ${label}, right now.`,
-    `Great starting point. Here's my plan for ${spec.name}, your new ${label}.`,
-    `On it — ${spec.name} is going to be a tidy little ${label}.`,
+    `Nice brief — I'll put together ${a} ${label} called ${spec.name}, with ${look}.`,
+    `Love it. Building ${spec.name}, ${a} ${label} with ${look}, right now.`,
+    `Great starting point. Here's my plan for ${spec.name}, your new ${label} — going for ${look}.`,
+    `On it — ${spec.name} is going to be a tidy little ${label} with ${look}.`,
   ]);
 
   const layoutItem =
@@ -142,8 +167,8 @@ export function buildCreationNarrative(spec: ProjectSpec, rng: Rng): CreationNar
       : `A responsive ${label} layout with a branded header and footer`;
 
   const styleItem = rng.pick([
-    `A ${spec.palette.mode} theme built around ${spec.palette.primary}, with ${spec.font} type and ${spec.radius} corners`,
-    `${spec.palette.mode === 'dark' ? 'Dark' : 'Light'}-mode styling on ${spec.palette.primary}, ${spec.font} typography, ${spec.radius} corner radius`,
+    `A ${spec.palette.mode} theme built around ${spec.palette.primary} — ${LOOK_NAMES[spec.style.archetype]} with ${HERO_NAMES[spec.style.hero]}`,
+    `${spec.palette.mode === 'dark' ? 'Dark' : 'Light'}-mode styling on ${spec.palette.primary}, ${LOOK_NAMES[spec.style.archetype]}, ${HERO_NAMES[spec.style.hero]}`,
   ]);
 
   const specifics = [...TEMPLATE_PLAN_ITEMS[spec.template]];
@@ -215,6 +240,10 @@ function opLabel(op: EditOp): string {
       return op.enabled ? 'Tighten the spacing' : 'Open up the spacing';
     case 'animations':
       return op.enabled ? 'Enable animations' : 'Disable animations';
+    case 'setArchetype':
+      return `Switch to ${LOOK_NAMES[op.archetype]}`;
+    case 'setHero':
+      return `Use ${HERO_NAMES[op.hero]}`;
   }
 }
 

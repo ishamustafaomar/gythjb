@@ -4,6 +4,7 @@
  */
 import { createRng, type Rng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -11,22 +12,6 @@ import {
   renderFooter,
   type TemplateOutput,
 } from '../shared';
-
-const PEOPLE: readonly string[] = [
-  'Maya Linden', 'Tomas Reyes', 'Priya Nair', 'Jonah Beck',
-  'Aiko Tanaka', 'Ruth Okafor', 'Leo Marchetti', 'Sofia Brandt',
-];
-
-const ACTIONS: readonly string[] = [
-  'upgraded to the Growth plan',
-  'invited a teammate',
-  'exported the quarterly report',
-  'created a new project',
-  'commented on a task',
-  'changed the billing email',
-  'archived an old workspace',
-  'connected a custom domain',
-];
 
 const TIMES: readonly string[] = [
   '2m ago', '18m ago', '44m ago', '1h ago', '3h ago', 'yesterday', '2 days ago',
@@ -75,13 +60,11 @@ function lineChartSvg(rng: Rng): string {
 
 export function renderDashboard(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:dashboard`);
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
 
-  const stats = [
-    { label: 'Active users', value: `${(rng.int(12, 98) / 10).toFixed(1)}k`, delta: rng.int(2, 18) },
-    { label: 'Sessions this week', value: `${rng.int(18, 64)}k`, delta: rng.int(-6, 22) },
-    { label: 'Conversion', value: `${(rng.int(18, 52) / 10).toFixed(1)}%`, delta: rng.int(-4, 9) },
-    { label: 'Monthly revenue', value: `$${rng.int(8, 40)}.${rng.int(1, 9)}k`, delta: rng.int(1, 14) },
-  ];
+  const stats = content.stats
+    .slice(0, 4)
+    .map((stat) => ({ label: stat.label, value: stat.value, delta: rng.int(-6, 22) }));
 
   const statCards = stats
     .map((stat) => {
@@ -95,14 +78,14 @@ export function renderDashboard(spec: ProjectSpec): TemplateOutput {
     .join('\n');
 
   const rows: string[] = [];
-  const personStart = rng.int(0, PEOPLE.length - 1);
-  const actionStart = rng.int(0, ACTIONS.length - 1);
+  const verbs = ['completed', 'picked up', 'commented on', 'reopened'] as const;
   for (let i = 0; i < 6; i++) {
-    const person = PEOPLE[(personStart + i) % PEOPLE.length] ?? 'Team member';
-    const action = ACTIONS[(actionStart + i) % ACTIONS.length] ?? 'updated a record';
+    const persona = content.personas[i % content.personas.length];
+    const card = content.kanbanCards[i % content.kanbanCards.length] ?? 'a task';
+    const action = `${verbs[i % verbs.length]} “${card}”`;
     const time = TIMES[Math.min(i, TIMES.length - 1)] ?? 'earlier';
     rows.push(`            <tr>
-              <td>${esc(person)}</td>
+              <td>${esc(persona?.name ?? 'Team member')}</td>
               <td>${esc(action)}</td>
               <td class="activity-time">${esc(time)}</td>
             </tr>`);

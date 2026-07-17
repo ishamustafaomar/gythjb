@@ -9,12 +9,14 @@ import {
   MousePointerClick,
   ImagePlus,
   Check,
+  Cpu,
 } from 'lucide-react';
 import { LogoMark } from '@/components/shared/logo';
 import { Button } from '@/components/ui/button';
 import { WithTooltip } from '@/components/ui/tooltip';
 import type { ChatMessage as ChatMessageModel } from '@/stores/projects';
 import type { FileChange } from '@/engine/types';
+import { modelInfo } from '@/lib/models';
 
 function StreamingCaret() {
   return (
@@ -22,6 +24,25 @@ function StreamingCaret() {
       aria-hidden
       className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-caret-blink rounded-full bg-foreground"
     />
+  );
+}
+
+/** Which model handled the turn, with the routing reason on hover. */
+function ModelBadge({ message }: { message: ChatMessageModel }) {
+  if (!message.model) return null;
+  const info = modelInfo(message.model.id);
+  return (
+    <WithTooltip label={message.model.reason}>
+      <span className="mt-2 inline-flex cursor-default items-center gap-1 text-[11px] text-muted-foreground">
+        <Cpu className="size-3" aria-hidden />
+        {info.name}
+        {message.model.mode === 'auto' && (
+          <span className="rounded bg-secondary px-1 py-px text-[10px] font-medium">
+            auto
+          </span>
+        )}
+      </span>
+    </WithTooltip>
   );
 }
 
@@ -197,6 +218,7 @@ export const ChatMessage = React.memo(function ChatMessage({
                 {message.status === 'streaming' && <StreamingCaret />}
               </p>
             )}
+            {message.status === 'complete' && <ModelBadge message={message} />}
             {message.status === 'stopped' && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <CircleSlash className="size-3.5" aria-hidden />

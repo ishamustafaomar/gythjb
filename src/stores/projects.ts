@@ -7,6 +7,7 @@ import type {
   FileChange,
   ElementSelection,
 } from '@/engine/types';
+import type { RoutedModel } from '@/lib/models';
 
 export interface Project {
   id: string;
@@ -42,6 +43,8 @@ export interface ChatMessage {
   selection?: ElementSelection;
   /** Attached image names (visual chip only; contents are not persisted). */
   attachments?: string[];
+  /** Which model handled this assistant turn, and why it was chosen. */
+  model?: RoutedModel;
 }
 
 export interface Version {

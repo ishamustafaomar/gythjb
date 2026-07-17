@@ -9,11 +9,15 @@ import type {
   ColorMode,
   FeatureFlag,
   FontStyle,
+  HeroLayout,
   ProjectSpec,
   RadiusStyle,
   SectionId,
+  StyleArchetype,
   TemplateId,
+  TopicDomain,
 } from './types';
+import { detectTopic, TOPIC_NAME_NOUNS, TOPIC_TAGLINES } from './codegen/content';
 
 /* ------------------------------------------------------------------ */
 /* Template detection                                                  */
@@ -25,11 +29,29 @@ interface TemplateMatcher {
   weight: number;
 }
 
+/**
+ * Weight for explicit page-type phrases ("landing page", "pricing page",
+ * "portfolio", …). High enough that a structural request decisively beats
+ * incidental commerce/topic nouns that only name the page's *subject* —
+ * "a landing page for a coffee shop" is a landing page, not a store.
+ */
+const EXPLICIT_PAGE_WEIGHT = 10;
+
 const TEMPLATE_MATCHERS: readonly TemplateMatcher[] = [
-  { template: 'landing', pattern: /\blanding\s+pages?\b/, weight: 4 },
-  { template: 'landing', pattern: /\b(?:web\s?site|home\s?page|marketing\s+(?:site|page)|one[-\s]pager|splash\s+page)\b/, weight: 3 },
+  // Explicit page-type tier — these phrases state what to build outright.
+  { template: 'landing', pattern: /\blanding\s+pages?\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'landing', pattern: /\bhome\s?pages?\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'landing', pattern: /\b(?:web\s*)?sites?\s+for\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'landing', pattern: /\bweb\s+pages?\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'landing', pattern: /\bone[-\s]pagers?\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'pricing', pattern: /\bpricing\s+pages?\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'portfolio', pattern: /\bportfolio\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'blog', pattern: /\bblog\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  { template: 'store', pattern: /\be-?commerce\b|\bonline\s+(?:store|shop)\b/, weight: EXPLICIT_PAGE_WEIGHT },
+  // Supporting-signal tiers.
+  { template: 'landing', pattern: /\b(?:web\s?site|marketing\s+(?:site|page)|splash\s+page)\b/, weight: 3 },
   { template: 'landing', pattern: /\b(?:launch|waitlist|startup|saas)\b/, weight: 1 },
-  { template: 'pricing', pattern: /\bpricing\s+(?:page|table|site)\b/, weight: 6 },
+  { template: 'pricing', pattern: /\bpricing\s+(?:table|site)\b/, weight: 6 },
   { template: 'pricing', pattern: /\b(?:plan\s+comparison|compare\s+plans|tiered\s+plans)\b/, weight: 3 },
   { template: 'todo', pattern: /\bto-?\s?dos?\b/, weight: 4 },
   { template: 'todo', pattern: /\btask\s+(?:list|manager|tracker|app)\b/, weight: 4 },
@@ -37,12 +59,9 @@ const TEMPLATE_MATCHERS: readonly TemplateMatcher[] = [
   { template: 'todo', pattern: /\btasks\b/, weight: 1 },
   { template: 'habit', pattern: /\bhabits?\b/, weight: 5 },
   { template: 'habit', pattern: /\bstreaks?\b|\bdaily\s+tracker\b/, weight: 2 },
-  { template: 'portfolio', pattern: /\bportfolio\b/, weight: 5 },
   { template: 'portfolio', pattern: /\bmy\s+work\b|\bcase\s+stud(?:y|ies)\b/, weight: 2 },
-  { template: 'blog', pattern: /\bblog\b/, weight: 5 },
   { template: 'blog', pattern: /\bmagazine\b|\bjournal\b/, weight: 2 },
   { template: 'blog', pattern: /\barticles?\b|\bposts?\b/, weight: 1 },
-  { template: 'store', pattern: /\be-?commerce\b|\bonline\s+(?:store|shop)\b/, weight: 5 },
   { template: 'store', pattern: /\bstore\b|\bshop\b|\bboutique\b|\bmarketplace\b/, weight: 4 },
   { template: 'store', pattern: /\bsell(?:ing)?\b/, weight: 2 },
   { template: 'store', pattern: /\bproducts?\b|\bcart\b/, weight: 1 },
@@ -185,6 +204,49 @@ const DEFAULT_PALETTES: Record<TemplateId, readonly string[]> = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Style: archetype + hero layout                                      */
+/* ------------------------------------------------------------------ */
+
+export const ARCHETYPES: readonly StyleArchetype[] = [
+  'minimal', 'gradient', 'editorial', 'brutalist', 'soft',
+];
+
+export const HERO_LAYOUTS: readonly HeroLayout[] = [
+  'centered', 'split', 'banner', 'editorial',
+];
+
+const ARCHETYPE_HINTS: ReadonlyArray<{ archetype: StyleArchetype; pattern: RegExp }> = [
+  { archetype: 'brutalist', pattern: /\bbrutalis\w*\b|\bstark\b|\braw\s+(?:look|style|design|aesthetic)\b/ },
+  { archetype: 'editorial', pattern: /\beditorial\b(?!\s+hero)|\bmagazine\b|\bluxur\w*\b|\belegant\b/ },
+  { archetype: 'gradient', pattern: /\bglass(?:y|morphism)?\b|\bgradients?\b|\bvibrant\b|\bbold\b|\bmodern\b/ },
+  { archetype: 'soft', pattern: /\bpastel\b|\bplayful\b|\bfriendly\b|\bcute\b|\bsoft\b/ },
+  { archetype: 'minimal', pattern: /\bminimal(?:ist)?\b|\bclean\b|\bsimple\b/ },
+];
+
+/** Explicit look hints; null when the prompt names no visual language. */
+export function detectArchetype(lowerPrompt: string): StyleArchetype | null {
+  for (const hint of ARCHETYPE_HINTS) {
+    if (hint.pattern.test(lowerPrompt)) return hint.archetype;
+  }
+  return null;
+}
+
+const HERO_HINTS: ReadonlyArray<{ hero: HeroLayout; pattern: RegExp }> = [
+  { hero: 'split', pattern: /\bsplit\s+(?:hero|layout)\b|\bhero\s+split\b/ },
+  { hero: 'banner', pattern: /\bbanner\s+hero\b|\bhero\s+banner\b|\bfull[-\s]?bleed\b/ },
+  { hero: 'editorial', pattern: /\beditorial\s+hero\b/ },
+  { hero: 'centered', pattern: /\bcenter(?:ed)?\s+hero\b|\bhero\s+center(?:ed)?\b/ },
+];
+
+/** Explicit hero-layout hints; null when unspecified. */
+export function detectHero(lowerPrompt: string): HeroLayout | null {
+  for (const hint of HERO_HINTS) {
+    if (hint.pattern.test(lowerPrompt)) return hint.hero;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 /* Names                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -271,8 +333,10 @@ function extractName(prompt: string): string | null {
   return null;
 }
 
-function generateName(template: TemplateId, rng: Rng): string {
-  return `${rng.pick(NAME_ADJECTIVES)} ${rng.pick(NAME_NOUNS[template])}`;
+function generateName(template: TemplateId, topic: TopicDomain, rng: Rng): string {
+  const topicNouns = TOPIC_NAME_NOUNS[topic];
+  const nouns = topicNouns.length > 0 ? topicNouns : NAME_NOUNS[template];
+  return `${rng.pick(NAME_ADJECTIVES)} ${rng.pick(nouns)}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -367,24 +431,31 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function buildTagline(template: TemplateId, topic: string | null, rng: Rng): string {
-  if (topic) {
-    const firstWord = topic.split(/\s+/)[0] ?? '';
+function buildTagline(
+  template: TemplateId,
+  topicPhrase: string | null,
+  topic: TopicDomain,
+  rng: Rng,
+): string {
+  if (topicPhrase) {
+    const firstWord = topicPhrase.split(/\s+/)[0] ?? '';
     if (TOPIC_VERBS.has(firstWord)) {
       return rng.pick([
-        `The calm way to ${topic}.`,
-        `The simplest way to ${topic}.`,
-        `Helping you ${topic}, one day at a time.`,
-        `${capitalize(topic)} — without the busywork.`,
+        `The calm way to ${topicPhrase}.`,
+        `The simplest way to ${topicPhrase}.`,
+        `Helping you ${topicPhrase}, one day at a time.`,
+        `${capitalize(topicPhrase)} — without the busywork.`,
       ]);
     }
     return rng.pick([
-      `Made for ${topic}, with care.`,
-      `A thoughtful home for ${topic}.`,
-      `A fresh take on ${topic}.`,
-      `${capitalize(topic)}, done properly.`,
+      `Made for ${topicPhrase}, with care.`,
+      `A thoughtful home for ${topicPhrase}.`,
+      `A fresh take on ${topicPhrase}.`,
+      `${capitalize(topicPhrase)}, done properly.`,
     ]);
   }
+  const topical = TOPIC_TAGLINES[topic];
+  if (topical.length > 0) return rng.pick(topical);
   return rng.pick(TEMPLATE_TAGLINES[template]);
 }
 
@@ -447,8 +518,9 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
   const lower = prompt.toLowerCase();
 
   const template = detectTemplate(lower);
-  const name = extractName(prompt) ?? generateName(template, rng);
-  const tagline = buildTagline(template, extractTopic(lower), rng);
+  const topic = detectTopic(lower);
+  const name = extractName(prompt) ?? generateName(template, topic, rng);
+  const tagline = buildTagline(template, extractTopic(lower), topic, rng);
 
   const mode: ColorMode =
     /\bdark\b|\bnight\s*mode\b/.test(lower) && !/\blight\s*mode\b/.test(lower)
@@ -488,6 +560,11 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
     if (!animationsOff) features.push('animations');
   }
 
+  // Style: explicit hints win; otherwise a uniform seeded pick, so two
+  // different seeds routinely land on genuinely different looks.
+  const archetype = detectArchetype(lower) ?? rng.pick(ARCHETYPES);
+  const hero = detectHero(lower) ?? rng.pick(HERO_LAYOUTS);
+
   return {
     template,
     name,
@@ -495,6 +572,8 @@ export function parsePrompt(prompt: string, seed: string): ProjectSpec {
     palette: { primary: pair.primary, accent: pair.accent, mode },
     radius,
     font,
+    style: { archetype, hero },
+    topic,
     sections: resolveSections(template, lower),
     features,
     seed,

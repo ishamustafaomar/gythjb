@@ -1,9 +1,11 @@
 /**
- * Store template — product grid with gradient thumbnails plus a slide-in
- * cart drawer (add/remove/quantity/total) persisted to localStorage.
+ * Store template — topic-driven product grid with gradient thumbnails plus
+ * a slide-in cart drawer (add/remove/quantity/total) persisted to
+ * localStorage.
  */
 import { createRng } from '@/lib/seeded';
 import type { ProjectSpec } from '../../types';
+import { contentFor } from '../content';
 import {
   baseCss,
   cssVariables,
@@ -16,34 +18,16 @@ import {
   type TemplateOutput,
 } from '../shared';
 
-const PRODUCT_POOL: ReadonlyArray<{ name: string; tag: string }> = [
-  { name: 'Juniper candle', tag: 'Home' },
-  { name: 'Linen tote', tag: 'Everyday' },
-  { name: 'Ceramic pour-over set', tag: 'Kitchen' },
-  { name: 'Walnut desk tray', tag: 'Desk' },
-  { name: 'Wool throw blanket', tag: 'Home' },
-  { name: 'Brass page marker', tag: 'Desk' },
-  { name: 'Stoneware mug pair', tag: 'Kitchen' },
-  { name: 'Botanical print', tag: 'Walls' },
-  { name: 'Cedar soap bar', tag: 'Bath' },
-  { name: 'Field notebook trio', tag: 'Desk' },
-];
-
 export function renderStore(spec: ProjectSpec): TemplateOutput {
   const rng = createRng(`${spec.seed}:store`);
-  const productCount = rng.int(6, 8);
-  const start = rng.int(0, PRODUCT_POOL.length - 1);
-  const products: Array<{ id: string; name: string; tag: string; price: number }> = [];
-  for (let i = 0; i < productCount; i++) {
-    const item = PRODUCT_POOL[(start + i) % PRODUCT_POOL.length];
-    if (!item) continue;
-    products.push({
-      id: `p-${i + 1}`,
-      name: item.name,
-      tag: item.tag,
-      price: rng.int(12, 88) + (rng.chance(0.5) ? 0.5 : 0),
-    });
-  }
+  const content = contentFor(spec.topic, createRng(`${spec.seed}:content`));
+  const productCount = Math.min(rng.int(6, 8), content.products.length);
+  const products = content.products.slice(0, productCount).map((item, i) => ({
+    id: `p-${i + 1}`,
+    name: item.name,
+    tag: item.category,
+    price: item.price,
+  }));
   const storageKey = `promptly:${slugify(spec.name)}:cart`;
 
   const productsHtml = products

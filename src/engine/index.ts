@@ -11,19 +11,43 @@ import type {
   Engine,
   EngineReply,
   GenerationPlan,
+  ProjectSpec,
   TemplateId,
 } from './types';
-import { parsePrompt } from './parse';
+import { ARCHETYPES, HERO_LAYOUTS, parsePrompt } from './parse';
 import { applyEdits, parseEdit } from './edits';
 import { buildClarify, buildCreationNarrative, buildEditNarrative } from './respond';
 import { generateFiles } from './codegen';
 import { diffFileSystems } from './diff';
 import { compilePreview } from './compile';
 import { TEMPLATE_LABELS } from './codegen/shared';
+import { detectTopic } from './codegen/content';
 
 /** Human title-case template label, e.g. "Habit tracker". */
 export function templateLabel(template: TemplateId): string {
   return TEMPLATE_LABELS[template];
+}
+
+/** A spec persisted before the style/topic fields existed. */
+export type StoredProjectSpec = Omit<ProjectSpec, 'style' | 'topic'> &
+  Partial<Pick<ProjectSpec, 'style' | 'topic'>>;
+
+/**
+ * Fills style/topic on specs stored before those fields existed, so old
+ * projects keep regenerating. Deterministic: the same legacy spec always
+ * normalizes to the same complete spec (style from spec.seed, topic from a
+ * best-effort read of the name + tagline).
+ */
+export function normalizeSpec(spec: StoredProjectSpec): ProjectSpec {
+  if (spec.style !== undefined && spec.topic !== undefined) return spec as ProjectSpec;
+  const rng = createRng(`${spec.seed}:normalize-style`);
+  const archetype = rng.pick(ARCHETYPES);
+  const hero = rng.pick(HERO_LAYOUTS);
+  return {
+    ...spec,
+    style: spec.style ?? { archetype, hero },
+    topic: spec.topic ?? detectTopic(`${spec.name} ${spec.tagline}`),
+  };
 }
 
 function createProject({ prompt, seed }: CreateProjectInput): GenerationPlan {
@@ -43,7 +67,9 @@ function createProject({ prompt, seed }: CreateProjectInput): GenerationPlan {
   };
 }
 
-function applyMessage({ spec, message, seed, selection }: EditInput): EngineReply {
+function applyMessage({ spec: rawSpec, message, seed, selection }: EditInput): EngineReply {
+  // Stored projects may predate the style/topic fields — heal them first.
+  const spec = normalizeSpec(rawSpec);
   const ops = parseEdit(message, spec, selection);
   const rng = createRng(`${seed}:edit-narrative`);
   if (ops.length === 0) {
