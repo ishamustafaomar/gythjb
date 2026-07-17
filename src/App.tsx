@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import {
   BrowserRouter,
   Navigate,
@@ -7,10 +7,11 @@ import {
   useLocation,
 } from 'react-router-dom';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Toaster } from '@/components/ui/toast';
+import { Toaster, toast } from '@/components/ui/toast';
 import { PageSpinner } from '@/components/ui/spinner';
 import { CommandPalette } from '@/components/shared/command-palette';
 import { useAuth } from '@/stores/auth';
+import { setStorageErrorHandler } from '@/lib/storage';
 
 const LandingPage = lazy(() => import('@/pages/landing'));
 const LoginPage = lazy(() => import('@/pages/login'));
@@ -34,15 +35,45 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Keep already-signed-in users out of the login/signup pages. */
+function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
+  const user = useAuth((s) => s.user);
+  if (user) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export function App() {
+  useEffect(() => {
+    setStorageErrorHandler(() =>
+      toast.error(
+        'Storage is full',
+        'Your browser ran out of space, so recent changes may not be saved. Delete a project or clear space to continue.'
+      )
+    );
+  }, []);
+
   return (
     <BrowserRouter>
       <TooltipProvider delayDuration={300}>
         <Suspense fallback={<PageSpinner />}>
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
+            <Route
+              path="/login"
+              element={
+                <RedirectIfAuthed>
+                  <LoginPage />
+                </RedirectIfAuthed>
+              }
+            />
+            <Route
+              path="/signup"
+              element={
+                <RedirectIfAuthed>
+                  <SignupPage />
+                </RedirectIfAuthed>
+              }
+            />
             <Route path="/community" element={<CommunityPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />

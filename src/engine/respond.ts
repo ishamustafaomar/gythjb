@@ -118,12 +118,18 @@ const TEMPLATE_PLAN_ITEMS: Record<TemplateId, readonly string[]> = {
   ],
 };
 
+/** Indefinite article for a word: "an" before a vowel sound, else "a". */
+function article(word: string): string {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
 export function buildCreationNarrative(spec: ProjectSpec, rng: Rng): CreationNarrative {
   const label = lowerLabel(spec.template);
+  const a = article(label);
 
   const intro = rng.pick([
-    `Nice brief — I'll put together a ${label} called ${spec.name}.`,
-    `Love it. Building ${spec.name}, a ${label}, right now.`,
+    `Nice brief — I'll put together ${a} ${label} called ${spec.name}.`,
+    `Love it. Building ${spec.name}, ${a} ${label}, right now.`,
     `Great starting point. Here's my plan for ${spec.name}, your new ${label}.`,
     `On it — ${spec.name} is going to be a tidy little ${label}.`,
   ]);
